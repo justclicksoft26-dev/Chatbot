@@ -56,6 +56,12 @@ from reporting.export_engine import detect_export_intent, ExportRequest, generat
 from reporting.executive_reports import detect_report_intent, generate_executive_report, format_report_for_chat, report_allowed
 
 
+def answer_mode() -> str:
+    """ANSWER_MODE=comments (default): every data question is answered from the schema comments via the LLM.
+    ANSWER_MODE=templates: the profile's ready-made SQL templates may answer first (legacy hybrid)."""
+    return "templates" if os.getenv("ANSWER_MODE", "comments").strip().lower() == "templates" else "comments"
+
+
 def _permission_fingerprint(perms) -> str:
     """"role:domains:branches" — part of every cache key, so users with different
     permissions never share an entry (two managers on different branches see different data)."""
@@ -1041,8 +1047,9 @@ async def _handle_data_query(
         else:
             log.info("[PIPELINE] invoice_detail with unknown INVTYPE -> LLM (fail-safe)")
 
-    # ── Try template matching ──
-    if intent.sub_intent:
+    # ── Try template matching (only in ANSWER_MODE=templates) ──
+    # Default ANSWER_MODE=comments: no ready-made SQL; the schema comments are the only source of meaning.
+    if intent.sub_intent and answer_mode() == "templates":
         # If question is contextual (LLM-classified, no entities, has history)
         # skip template and go to LLM-controlled which uses conversation history
         if _needs_history_context(intent, history):
@@ -1104,7 +1111,7 @@ async def _handle_data_query(
                     result.intent = intent
                     return result
     else:
-        log.info("[PIPELINE] no sub_intent, going to LLM")
+        log.info("[PIPELINE] comments-only path -> LLM" if intent.sub_intent else "[PIPELINE] no sub_intent, going to LLM")
 
     # ── CHANGE 2: gate the no-template fallback on COMMENT vocabulary ──
     # No usable template was produced. Before handing the question to the LLM,

@@ -25,6 +25,15 @@ uvicorn app:app --reload
 
 للتشغيل بدون Oracle (تطوير/اختبار) ضع `LEARNING_FORCE_SQLITE=1`.
 
+## خطة العمل واختبارات القبول
+
+المشروع مقسَّم إلى سبرنتات، ولكل سبرنت اختبار قبول (UAT) تشغّله على بيئتك: [`docs/SPRINTS.md`](docs/SPRINTS.md).
+النظام يجيب من **تعليقات الجداول فقط** (`ANSWER_MODE=comments`، الافتراضي) — لا قوالب جاهزة للأسئلة.
+
+```bash
+python -m uat.run_uat --sprint 1 --company 1 --year 2024 --oracle
+```
+
 ## الاختبارات
 
 ```bash
