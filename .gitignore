@@ -9,7 +9,7 @@ venv/
 dist/
 build/
 *.db
-data/
+/data/
 
 # Large Oracle APEX export files — not part of chatbot source
 f103.sql

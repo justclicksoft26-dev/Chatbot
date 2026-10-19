@@ -73,3 +73,10 @@ def test_db_check_script_collects_every_shipped_query(justclick_profile):
     queries = module.collect_queries(company_code="9", fiscal_year="2025")
     assert len(queries) >= 21 + 43 + 30
     assert all(sql is not None for _, sql, _ in queries), [q[0] for q in queries if q[1] is None]
+
+
+def test_test_data_is_not_gitignored():
+    """tests/data holds the golden questions; a blanket `data/` ignore rule once dropped it from the repo."""
+    import subprocess
+    out = subprocess.run(["git", "check-ignore", "tests/data/golden_justclick.py"], cwd=ROOT, capture_output=True)
+    assert out.returncode == 1
