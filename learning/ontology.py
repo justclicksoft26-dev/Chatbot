@@ -1,5 +1,5 @@
 """
-learning/ontology.py — CRM Ontology Graph Engine
+learning/ontology.py — Ontology Graph Engine
 Maps entity relationships: tables, columns, business concepts, intents.
 Enables intelligent join-path discovery and contextual SQL generation.
 """
@@ -45,88 +45,30 @@ class Relation:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# Seed Data — ECO SAFE CRM Schema Ontology
+# Seed Data — comes from the active profile (profiles/<name>/ontology.py)
 # ═══════════════════════════════════════════════════════════════════
 
-_SEED_NODES = [
-    # Core CRM tables
-    ("tbl:ACTIVITIES",    NodeType.TABLE,  "الأنشطة",           "Activities",         "activities"),
-    ("tbl:CUST",          NodeType.TABLE,  "العملاء",            "Customers",          "customers"),
-    ("tbl:EMPLOYEES",     NodeType.TABLE,  "جهات الاتصال",      "Contacts/Leads",     "contacts"),
-    ("tbl:ACC_USERS",     NodeType.TABLE,  "موظفو النظام",      "System Staff",       "hr"),
-    ("tbl:COURSES_PLAN",  NodeType.TABLE,  "الدورات التدريبية", "Training Courses",   "courses"),
-    # Domains
-    ("dom:activities", NodeType.DOMAIN, "الأنشطة والتواصل", "Activities & Comms", None),
-    ("dom:customers",  NodeType.DOMAIN, "العملاء",           "Customers",          None),
-    ("dom:contacts",   NodeType.DOMAIN, "جهات الاتصال",     "Contacts & Leads",   None),
-    ("dom:hr",         NodeType.DOMAIN, "الفريق الداخلي",   "Internal Team",      None),
-    ("dom:courses",    NodeType.DOMAIN, "الدورات",           "Courses",            None),
-    # Business concepts
-    ("con:activity",  NodeType.CONCEPT, "نشاط",          "Activity",       "activities"),
-    ("con:call",      NodeType.CONCEPT, "مكالمة",        "Call",           "activities"),
-    ("con:whatsapp",  NodeType.CONCEPT, "واتساب",        "WhatsApp",       "activities"),
-    ("con:meeting",   NodeType.CONCEPT, "اجتماع",        "Meeting",        "activities"),
-    ("con:followup",  NodeType.CONCEPT, "فولو أب",       "Follow-up",      "activities"),
-    ("con:email",     NodeType.CONCEPT, "ايميل",         "Email",          "activities"),
-    ("con:client",    NodeType.CONCEPT, "عميل",          "Client",         "customers"),
-    ("con:contact",   NodeType.CONCEPT, "جهة اتصال",     "Contact",        "contacts"),
-    ("con:lead",      NodeType.CONCEPT, "عميل محتمل",   "Lead",           "contacts"),
-    ("con:staff",     NodeType.CONCEPT, "موظف",          "Staff Member",   "hr"),
-    ("con:course",    NodeType.CONCEPT, "دورة تدريبية", "Training Course","courses"),
-    # Key CRM metrics
-    ("met:activity_count",    NodeType.METRIC, "عدد الأنشطة",      "Activity Count",      "activities"),
-    ("met:top_staff",         NodeType.METRIC, "أكثر موظف نشاطاً", "Top Active Staff",    "activities"),
-    ("met:overdue_followups", NodeType.METRIC, "متابعات متأخرة",   "Overdue Follow-ups",  "activities"),
-    ("met:customer_count",    NodeType.METRIC, "عدد العملاء",      "Customer Count",      "customers"),
-    ("met:contact_pipeline",  NodeType.METRIC, "مسار المتابعة",    "Contact Pipeline",    "contacts"),
-    ("met:course_delegates",  NodeType.METRIC, "عدد المسجلين",     "Course Delegates",    "courses"),
-]
-
-_SEED_EDGES = [
-    # Table relationships (JOINs)
-    ("tbl:ACTIVITIES",  "tbl:ACC_USERS",  Relation.JOINS_TO, 1.0, '{"join": "CREATED_BY = USER_NAME"}'),
-    ("tbl:ACTIVITIES",  "tbl:CUST",       Relation.JOINS_TO, 1.0, '{"join": "CUST_ID = CUSTID"}'),
-    ("tbl:EMPLOYEES",   "tbl:CUST",       Relation.JOINS_TO, 1.0, '{"join": "CUST_ID = CUSTID"}'),
-    # Table → Domain
-    ("tbl:ACTIVITIES",   "dom:activities", Relation.IN_DOMAIN, 1.0, None),
-    ("tbl:CUST",         "dom:customers",  Relation.IN_DOMAIN, 1.0, None),
-    ("tbl:EMPLOYEES",    "dom:contacts",   Relation.IN_DOMAIN, 1.0, None),
-    ("tbl:ACC_USERS",    "dom:hr",         Relation.IN_DOMAIN, 1.0, None),
-    ("tbl:COURSES_PLAN", "dom:courses",    Relation.IN_DOMAIN, 1.0, None),
-    # Concept → Table
-    ("con:activity", "tbl:ACTIVITIES",   Relation.USED_BY, 1.0, None),
-    ("con:call",     "tbl:ACTIVITIES",   Relation.USED_BY, 1.0, None),
-    ("con:whatsapp", "tbl:ACTIVITIES",   Relation.USED_BY, 1.0, None),
-    ("con:meeting",  "tbl:ACTIVITIES",   Relation.USED_BY, 1.0, None),
-    ("con:followup", "tbl:ACTIVITIES",   Relation.USED_BY, 1.0, None),
-    ("con:email",    "tbl:ACTIVITIES",   Relation.USED_BY, 1.0, None),
-    ("con:client",   "tbl:CUST",         Relation.USED_BY, 1.0, None),
-    ("con:contact",  "tbl:EMPLOYEES",    Relation.USED_BY, 1.0, None),
-    ("con:lead",     "tbl:EMPLOYEES",    Relation.USED_BY, 0.9, None),
-    ("con:staff",    "tbl:ACC_USERS",    Relation.USED_BY, 1.0, None),
-    ("con:course",   "tbl:COURSES_PLAN", Relation.USED_BY, 1.0, None),
-    # Metric → Tables
-    ("met:activity_count",    "tbl:ACTIVITIES",   Relation.COMPUTED_FROM, 1.0, None),
-    ("met:top_staff",         "tbl:ACTIVITIES",   Relation.COMPUTED_FROM, 1.0, None),
-    ("met:top_staff",         "tbl:ACC_USERS",    Relation.COMPUTED_FROM, 0.9, None),
-    ("met:overdue_followups", "tbl:ACTIVITIES",   Relation.COMPUTED_FROM, 1.0, None),
-    ("met:customer_count",    "tbl:CUST",         Relation.COMPUTED_FROM, 1.0, None),
-    ("met:contact_pipeline",  "tbl:EMPLOYEES",    Relation.COMPUTED_FROM, 1.0, None),
-    ("met:course_delegates",  "tbl:COURSES_PLAN", Relation.COMPUTED_FROM, 1.0, None),
-]
+def _seed() -> tuple[list, list]:
+    import profiles
+    module = getattr(profiles.active(), "ONTOLOGY", None)
+    return (list(getattr(module, "SEED_NODES", [])), list(getattr(module, "SEED_EDGES", [])))
 
 
 def seed_ontology() -> int:
-    """Load built-in CRM ontology into in-memory graph."""
+    """Replace the in-memory graph with the active profile's ontology."""
+    nodes, edges = _seed()
     count = 0
     with _graph_lock:
-        for key, ntype, label_ar, label_en, domain in _SEED_NODES:
+        _NODES.clear()
+        _EDGES_OUT.clear()
+        _EDGES_IN.clear()
+        for key, ntype, label_ar, label_en, domain in nodes:
             _NODES[key] = {
                 "node_type": ntype, "label_ar": label_ar,
                 "label_en": label_en, "domain": domain, "metadata": {},
             }
             count += 1
-        for src, tgt, rel, weight, meta in _SEED_EDGES:
+        for src, tgt, rel, weight, meta in edges:
             edge = {
                 "source_key": src, "target_key": tgt,
                 "relation": rel, "weight": weight,

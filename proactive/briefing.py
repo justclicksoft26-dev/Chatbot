@@ -10,7 +10,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 
-from db import execute_read_query as execute_query
+from proactive.scoped import execute_query
 from .alerts import alert_store, SEVERITY_LABELS, CATEGORY_LABELS
 
 log = logging.getLogger("proactive.briefing")

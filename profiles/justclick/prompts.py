@@ -169,3 +169,6 @@ HELP = """يمكنني مساعدتك في تحليل واستعراض بيان�
 ---
 أستطيع أيضاً إنشاء رسوم بيانية، مقارنات، وتقارير تنفيذية.
 اسأل بالعربي أو الإنجليزي — أو العامية!"""
+
+OUT_OF_SCOPE_AR = "أنا مختص بالأسئلة المتعلقة بنظام JustClick ERP (المبيعات، المشتريات، العملاء، المخازن، الحسابات، الموظفين). سؤالك خارج نطاق البيانات المتاحة."
+OUT_OF_SCOPE_EN = "I specialize in JustClick ERP questions (sales, purchases, customers, inventory, accounting, employees). Your question is outside the available data scope."

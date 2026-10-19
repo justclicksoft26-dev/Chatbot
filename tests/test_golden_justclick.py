@@ -19,8 +19,8 @@ pytestmark = pytest.mark.usefixtures("justclick_profile")
 
 @pytest.mark.parametrize("case", GOLDEN, ids=[c["id"] for c in GOLDEN])
 def test_golden_case(case):
-    from intent_classifier import classify_intent
-    from query_templates import find_template, render_template
+    from nlu.intent_classifier import classify_intent
+    from nlu.query_templates import find_template, render_template
 
     expected_intent, expected_template = case.get("sub_intent"), case.get("template")
     extra_entities = case.get("entities", {})
@@ -70,3 +70,21 @@ def test_golden_case(case):
 def test_golden_set_is_not_empty_and_ids_are_unique():
     ids = [c["id"] for c in GOLDEN]
     assert len(ids) == len(set(ids)) >= 100
+
+
+# ── live check: real LLM + Oracle, run with `pytest -m live` ───────────
+LIVE_CASES = [c for c in GOLDEN if c.get("live_sql_has")]
+
+
+@pytest.mark.live
+@pytest.mark.parametrize("case", LIVE_CASES, ids=[c["id"] for c in LIVE_CASES])
+def test_golden_case_live(case):
+    import asyncio
+    from pipeline import process_question
+
+    result = asyncio.run(process_question(
+        question=case["q"], user_id="eval_user", company_code="1", fiscal_year="2024"))
+    sql = (result.sql or "").upper()
+    assert sql, f"pipeline returned no SQL (method={result.method!r})"
+    for token in case["live_sql_has"]:
+        assert token.upper() in sql, f"live SQL is missing {token!r}\n{sql[:300]}"

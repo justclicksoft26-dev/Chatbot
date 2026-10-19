@@ -137,7 +137,7 @@ async def validate_record_exists(plan: ActionPlan) -> Optional[str]:
     Returns an error message if not found, or None if OK.
     For UPDATE/DELETE actions only.
     """
-    from db import execute_read_query as execute_query
+    from infra.db import execute_read_query as execute_query
 
     action_def = get_action_def(plan.action_type)
     if action_def.operation != "UPDATE":

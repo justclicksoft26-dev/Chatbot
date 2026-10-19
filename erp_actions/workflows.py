@@ -5,7 +5,7 @@ and integrates with the action engine for approve/reject.
 """
 import logging
 from typing import Optional
-from db import execute_read_query as execute_query
+from infra.db import execute_read_query as execute_query
 
 log = logging.getLogger("erp_actions.workflows")
 
@@ -13,6 +13,13 @@ log = logging.getLogger("erp_actions.workflows")
 # ══════════════════════════════════════════════════════════════════
 # Workflow Queries (read-only, uses existing sql_safety path)
 # ══════════════════════════════════════════════════════════════════
+
+def _limit(value, default: int = 20) -> int:
+    try:
+        return max(1, min(int(value), 500))
+    except (TypeError, ValueError):
+        return default
+
 
 async def get_pending_approvals(
     user_id: str = "",
@@ -30,24 +37,15 @@ async def get_pending_approvals(
                    AMOUNT, NOTES
             FROM AI_ACTION_REQUESTS
             WHERE STATUS = 'pending'
-              AND COMPANY_CODE = '{company_code}'
+              AND COMPANY_CODE = :company
+              {"AND (ASSIGNED_TO = :uid OR ASSIGNED_TO IS NULL)" if user_id else ""}
             ORDER BY REQUESTED_AT DESC
-            FETCH FIRST {limit} ROWS ONLY
+            FETCH FIRST {_limit(limit)} ROWS ONLY
         """
+        params = {"company": str(company_code)}
         if user_id:
-            sql = f"""
-                SELECT REQUEST_ID, REQUEST_TYPE, DESCRIPTION,
-                       REQUESTED_BY, REQUESTED_AT, STATUS,
-                       AMOUNT, NOTES
-                FROM AI_ACTION_REQUESTS
-                WHERE STATUS = 'pending'
-                  AND COMPANY_CODE = '{company_code}'
-                  AND (ASSIGNED_TO = '{user_id}' OR ASSIGNED_TO IS NULL)
-                ORDER BY REQUESTED_AT DESC
-                FETCH FIRST {limit} ROWS ONLY
-            """
-        data = await execute_query(sql)
-        return data
+            params["uid"] = str(user_id)
+        return await execute_query(sql, params)
     except Exception as e:
         log.warning(f"[WORKFLOWS] Pending approvals query failed: {e}")
         return []
@@ -59,17 +57,17 @@ async def get_request_status(
 ) -> Optional[dict]:
     """Get the current status of a specific request."""
     try:
-        sql = f"""
+        sql = """
             SELECT REQUEST_ID, REQUEST_TYPE, DESCRIPTION,
                    REQUESTED_BY, REQUESTED_AT,
                    STATUS, APPROVED_BY, APPROVED_AT,
                    AMOUNT, NOTES
             FROM AI_ACTION_REQUESTS
-            WHERE REQUEST_ID = '{request_id}'
-              AND COMPANY_CODE = '{company_code}'
+            WHERE REQUEST_ID = :request_id
+              AND COMPANY_CODE = :company
             FETCH FIRST 1 ROWS ONLY
         """
-        data = await execute_query(sql)
+        data = await execute_query(sql, {"request_id": str(request_id), "company": str(company_code)})
         if data:
             row = data[0]
             # Add status label
@@ -96,7 +94,6 @@ async def get_workflow_history(
 ) -> list[dict]:
     """Get workflow history (completed/rejected requests)."""
     try:
-        where = f"AND REQUEST_ID = '{request_id}'" if request_id else ""
         sql = f"""
             SELECT REQUEST_ID, REQUEST_TYPE, DESCRIPTION,
                    REQUESTED_BY, REQUESTED_AT,
@@ -104,12 +101,15 @@ async def get_workflow_history(
                    AMOUNT, NOTES
             FROM AI_ACTION_REQUESTS
             WHERE STATUS IN ('approved', 'rejected', 'completed')
-              AND COMPANY_CODE = '{company_code}'
-              {where}
+              AND COMPANY_CODE = :company
+              {"AND REQUEST_ID = :request_id" if request_id else ""}
             ORDER BY APPROVED_AT DESC NULLS LAST
-            FETCH FIRST {limit} ROWS ONLY
+            FETCH FIRST {_limit(limit, 50)} ROWS ONLY
         """
-        return await execute_query(sql)
+        params = {"company": str(company_code)}
+        if request_id:
+            params["request_id"] = str(request_id)
+        return await execute_query(sql, params)
     except Exception as e:
         log.warning(f"[WORKFLOWS] Workflow history query failed: {e}")
         return []
@@ -118,13 +118,13 @@ async def get_workflow_history(
 async def get_approval_summary(company_code: str = "1") -> dict:
     """Get approval counts by status for dashboard display."""
     try:
-        sql = f"""
+        sql = """
             SELECT STATUS, COUNT(*) AS CNT
             FROM AI_ACTION_REQUESTS
-            WHERE COMPANY_CODE = '{company_code}'
+            WHERE COMPANY_CODE = :company
             GROUP BY STATUS
         """
-        data = await execute_query(sql)
+        data = await execute_query(sql, {"company": str(company_code)})
         summary = {"pending": 0, "approved": 0, "rejected": 0, "total": 0}
         for row in data:
             status = str(row.get("STATUS", "")).lower()

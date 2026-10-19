@@ -9,7 +9,7 @@ from erp_actions.registry import ACTIONS, get_action_def, list_action_types
 # ── intent detection ───────────────────────────────────────────────────
 @pytest.mark.parametrize("question, action, params", [
     ("أنشئ عميل جديد باسم شركة النور موبايل 0501234567", "create_customer",
-     {"cust_name": "شركة النور موبايل", "mob": "0501234567"}),
+     {"cust_name": "شركة النور", "mob": "0501234567"}),
     ("حدّث سعر الصنف رقم 105 بسعر 250", "update_item_price", {"itemid": "105", "sellprice": 250.0}),
     ("عطل العميل رقم 33", "deactivate_customer", {"custid": "33"}),
     ("عطّل المورد رقم 9", "deactivate_supplier", {"custid": "9"}),
@@ -112,7 +112,7 @@ async def test_enrich_plan_with_current_values(monkeypatch):
         assert params["itemid"] == "5" and params["company_code"] == "1"
         return [{"itemname": "كرسي", "sellprice": 180}]
 
-    import db
+    from infra import db
     monkeypatch.setattr(db, "execute_read_query", fake_query)
     await planner.enrich_plan_with_current_values(plan, "1")
     assert plan.current_values == {"ITEMNAME": "كرسي", "SELLPRICE": 180}
@@ -124,7 +124,7 @@ async def test_enrich_survives_db_failure(monkeypatch):
     async def boom(*a, **k):
         raise RuntimeError("db down")
 
-    import db
+    from infra import db
     monkeypatch.setattr(db, "execute_read_query", boom)
     await planner.enrich_plan_with_current_values(plan, "1")
     assert plan.current_values == {}
@@ -205,7 +205,7 @@ async def test_record_exists_uses_bind_variables(monkeypatch):
         seen["sql"], seen["params"] = sql, params
         return [{"CUST_NAME": "x"}]
 
-    import db
+    from infra import db
     monkeypatch.setattr(db, "execute_read_query", fake_query)
     plan = make_plan("update_customer", custid="1' OR '1'='1", cust_name="شركة")
     assert await validator.validate_record_exists(plan) is None
@@ -217,7 +217,7 @@ async def test_record_exists_reports_missing_record(monkeypatch):
     async def empty(sql, params=None):
         return []
 
-    import db
+    from infra import db
     monkeypatch.setattr(db, "execute_read_query", empty)
     msg = await validator.validate_record_exists(make_plan("update_customer", custid="5", cust_name="شركة"))
     assert "5" in msg
@@ -489,3 +489,23 @@ def test_load_pending_from_db_warms_cache():
     plan = planned()
     store._actions.clear()
     assert store.load_pending_from_db() == 1 and plan.id in store._actions
+
+
+@pytest.mark.parametrize("question, action, params", [
+    # the amount used to be read as the customer id (a voucher for customer 500!)
+    ("سجل سند قبض من العميل أحمد مبلغ 500", "create_collection", {"payed_amount": 500.0}),
+    ("سجل سند قبض من العميل 45 مبلغ 500", "create_collection", {"cust_id": "45", "payed_amount": 500.0}),
+    ("سجل سند صرف للمورد 7 بمبلغ 1,500", "create_payment", {"cust_id": "7", "payed_amount": 1500.0}),
+    ("غير سعر الصنف 12 إلى 50", "update_item_price", {"itemid": "12", "sellprice": 50.0}),
+    # the name used to swallow the price keyword
+    ("أضف صنف اسمه قلم بسعر 5", "create_item", {"itemname": "قلم", "sellprice": 5.0}),
+])
+def test_amounts_are_never_mistaken_for_record_ids(question, action, params):
+    found = planner.detect_action_intent(question)
+    assert str(found[0].value) == action and found[1] == params
+
+
+def test_a_collection_without_a_customer_id_is_flagged_incomplete():
+    action, params = planner.detect_action_intent("سجل سند قبض من العميل أحمد مبلغ 500")
+    plan = planner.plan_action(action, params, user_id="u")
+    assert "cust_id" in plan.validation_errors

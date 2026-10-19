@@ -3,10 +3,12 @@ routers/proactive.py — Proactive Intelligence API Endpoints
 Exposes alerts, health scores, briefings, and manual scan triggers.
 """
 import logging
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from typing import Optional
 
+from routers.auth import caller_id, ensure_company_access, require_admin
+from proactive.scoped import monitor_company
 from proactive.alerts import alert_store
 from proactive.monitor import run_all_checks
 from proactive.health import compute_health_scores
@@ -14,7 +16,12 @@ from proactive.briefing import generate_daily_briefing
 
 log = logging.getLogger("routers.proactive")
 
-router = APIRouter(prefix="/chat", tags=["proactive"])
+async def monitored_company_access(request: Request, user_id: str = "web_user") -> None:
+    """Alerts, health scores and briefings describe the monitored company: its users only."""
+    await ensure_company_access(caller_id(request, user_id), monitor_company())
+
+
+router = APIRouter(prefix="/chat", tags=["proactive"], dependencies=[Depends(monitored_company_access)])
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -64,7 +71,7 @@ async def acknowledge_alerts(req: AcknowledgeRequest):
         return {"status": "ok", "acknowledged": "all"}
 
 
-@router.post("/alerts/scan")
+@router.post("/alerts/scan", dependencies=[Depends(require_admin)])
 async def trigger_scan():
     """Manually trigger a monitoring scan (for testing/admin)."""
     try:

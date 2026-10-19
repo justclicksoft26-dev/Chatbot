@@ -12,7 +12,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 
-from db import execute_read_query as execute_query
+from proactive.scoped import execute_query
 
 log = logging.getLogger("proactive.health")
 

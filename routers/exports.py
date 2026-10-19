@@ -3,23 +3,41 @@ routers/exports.py — Data Export API
 Endpoints for exporting query results and reports in PDF, Excel, CSV, JSON formats.
 """
 import logging
-from fastapi import APIRouter, HTTPException
+from urllib.parse import quote
+
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import Response
 from pydantic import BaseModel
 from typing import Optional
 
-from export_engine import (
+from reporting.export_engine import (
     ExportFormat, ExportRequest, generate_export, detect_export_intent,
 )
-from executive_reports import (
+from reporting.executive_reports import (
     generate_executive_report, detect_report_intent,
-    format_report_for_chat, REPORT_TYPES, ExecutiveReport,
+    format_report_for_chat, REPORT_TYPES, ExecutiveReport, report_allowed,
 )
+from routers.auth import caller_id, ensure_company_access
+from security import rbac
 from routers.schemas import ScopeValue
 
 log = logging.getLogger("routers.exports")
 
 router = APIRouter(prefix="/exports", tags=["exports"])
+
+
+def _download_headers(filename: str) -> dict:
+    """HTTP headers are latin-1; Arabic titles go through RFC 5987 (filename*) with an ASCII fallback."""
+    stem, _, ext = filename.rpartition(".")
+    if not stem:
+        stem, ext = filename, ""
+    ascii_stem = stem.encode("ascii", "ignore").decode().strip("_ .-")
+    ascii_name = (ascii_stem if ascii_stem and not ascii_stem[0].isdigit() else f"export_{ascii_stem}".rstrip("_")) \
+        + (f".{ext}" if ext else "")
+    return {
+        "Content-Disposition": f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(filename)}",
+        "X-Filename": quote(filename),
+    }
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -42,6 +60,7 @@ class ExecutiveReportRequest(BaseModel):
     report_type: str = "financial_summary"
     company_code: ScopeValue = "1"
     fiscal_year: ScopeValue = "2024"
+    user_id: str = "web_user"
     export_format: str = ""  # empty = chat display; pdf|excel|csv|json = file export
 
 
@@ -80,34 +99,46 @@ async def export_data(req: ExportDataRequest):
         return Response(
             content=content,
             media_type=media_type,
-            headers={
-                "Content-Disposition": f'attachment; filename="{filename}"',
-                "X-Filename": filename,
-            },
+            headers=_download_headers(filename),
         )
     except Exception as e:
         log.error(f"[EXPORT] Export failed: {e}")
         raise HTTPException(status_code=500, detail="فشل تصدير البيانات.")
 
 
+def _may_export(user_id: str) -> bool:
+    """Roles that cannot export are only enforced for identities we can trust."""
+    perms = rbac.enforced_permissions(user_id)
+    return perms is None or perms.can_export
+
+
 @router.post("/report")
-async def generate_report(req: ExecutiveReportRequest):
+async def generate_report(req: ExecutiveReportRequest, request: Request):
     """
     Generate an executive report.
     If export_format is empty, returns structured JSON for chat display.
     If export_format is set, returns a downloadable file.
     """
+    user_id = caller_id(request, req.user_id)
+    await ensure_company_access(user_id, req.company_code)
+    if req.export_format and not _may_export(user_id):
+        raise HTTPException(status_code=403, detail="التصدير غير متاح لدورك.")
+
     if req.report_type not in REPORT_TYPES:
         raise HTTPException(
             status_code=400,
             detail=f"نوع التقرير غير مدعوم: {req.report_type}. الأنواع المتاحة: {', '.join(REPORT_TYPES.keys())}",
         )
 
+    if not report_allowed(user_id, req.report_type):
+        raise HTTPException(status_code=403, detail="ليس لديك صلاحية على هذا المجال.")
+
     try:
         report = await generate_executive_report(
             report_type=req.report_type,
             company_code=req.company_code,
             fiscal_year=req.fiscal_year,
+            user_id=user_id,
         )
     except Exception as e:
         log.error(f"[REPORT] Generation failed: {e}")
@@ -139,10 +170,7 @@ async def generate_report(req: ExecutiveReportRequest):
     return Response(
         content=content,
         media_type=media_type,
-        headers={
-            "Content-Disposition": f'attachment; filename="{filename}"',
-            "X-Filename": filename,
-        },
+        headers=_download_headers(filename),
     )
 
 

@@ -4,14 +4,15 @@ import re
 import pytest
 
 import profiles
-from sql_safety import validate_sql
+from security.sql_safety import validate_sql
 
 PROFILES = ["justclick", "ecosafe"]
 REQUIRED = {
     "intents": ["DOMAIN_SIGNALS", "SUB_INTENT_PATTERNS", "ENTITY_PATTERNS", "SUB_INTENT_DOMAIN_PREFIXES",
                 "DEFAULT_DOMAIN", "CLASSIFY_PROMPT_INTRO", "CLASSIFY_PROMPT_EXAMPLES"],
     "templates": ["TEMPLATES"],
-    "prompts": ["SQL_SYSTEM_PROMPT", "ANALYST_SYSTEM_PROMPT", "GREETING", "GREETING_SUGGESTIONS", "HELP"],
+    "prompts": ["SQL_SYSTEM_PROMPT", "ANALYST_SYSTEM_PROMPT", "GREETING", "GREETING_SUGGESTIONS", "HELP",
+                "OUT_OF_SCOPE_AR", "OUT_OF_SCOPE_EN"],
     "suggestions": ["DOMAIN_ALIASES", "DOMAIN_SUGGESTIONS", "INTENT_SUGGESTIONS", "COLUMN_LABELS",
                     "FALLBACK_SUGGESTIONS", "EMPTY_STATE_RULES", "DOMAIN_EMPTY_HINTS"],
 }
@@ -51,6 +52,13 @@ def test_profile_identity(profile):
     p = profiles.active()
     assert p.NAME == profile and p.TITLE and p.BRAND
     assert p.COMMENTS_FILE.exists()
+    assert isinstance(p.TENANT_FILTERING, bool)
+
+
+def test_only_the_erp_profile_filters_by_tenant():
+    import importlib
+    assert importlib.import_module("profiles.justclick").TENANT_FILTERING is True
+    assert importlib.import_module("profiles.ecosafe").TENANT_FILTERING is False
 
 
 def test_every_part_has_its_required_names(profile):
@@ -109,7 +117,7 @@ def test_suggestion_chips_are_well_formed(profile):
 
 # ── schema comments ────────────────────────────────────────────────────
 def test_comments_file_parses(profile):
-    import schema_loader
+    from nlu import schema_loader
     assert len(schema_loader._table_comments) >= 25
     assert set(schema_loader._column_comments) <= set(schema_loader._table_comments), \
         "column comments for a table that has no table comment"
@@ -123,7 +131,7 @@ def _entities_for(template):
 
 
 def test_every_template_renders_and_is_safe(profile):
-    import query_templates
+    from nlu import query_templates
     assert query_templates.TEMPLATES, "profile has no templates"
     for template in query_templates.TEMPLATES.values():
         sql = query_templates.render_template(template, _entities_for(template))
@@ -134,7 +142,7 @@ def test_every_template_renders_and_is_safe(profile):
 
 
 def test_templates_never_hardcode_tenant_filters(profile):
-    import query_templates
+    from nlu import query_templates
     for template in query_templates.TEMPLATES.values():
         assert "COMPANY_CODE" not in template.sql.upper(), template.name
         assert "FISCAL_YEAR" not in template.sql.upper(), template.name
@@ -142,16 +150,16 @@ def test_templates_never_hardcode_tenant_filters(profile):
 
 def test_templates_use_flag_placeholders_instead_of_literal_codes(profile):
     """Coded values (INVTYPE=0, CUST_TYPE=1, ...) must come from the comments."""
-    import query_templates
+    from nlu import query_templates
     literal = re.compile(r"\b(INVTYPE|CUST_TYPE)\s*=\s*\d", re.IGNORECASE)
     for template in query_templates.TEMPLATES.values():
         assert not literal.search(template.sql), f"{template.name} hard-codes a coded value"
 
 
 def test_templates_only_touch_commented_tables(profile):
-    import query_templates
-    from sql_safety import get_allowed_tables
-    from sql_ast import _extract_tables_ast
+    from nlu import query_templates
+    from security.sql_safety import get_allowed_tables
+    from security.sql_ast import _extract_tables_ast
     allowed = get_allowed_tables()
     for template in query_templates.TEMPLATES.values():
         sql = query_templates.render_template(template, _entities_for(template))
@@ -161,8 +169,8 @@ def test_templates_only_touch_commented_tables(profile):
 
 def test_tenant_policy_applies_to_every_justclick_template(justclick_profile):
     """query_policy must produce valid, still-safe SQL for each template."""
-    import query_templates
-    from query_policy import apply_policy
+    from nlu import query_templates
+    from security.query_policy import apply_policy
     for template in query_templates.TEMPLATES.values():
         sql = query_templates.render_template(template, _entities_for(template))
         scoped = apply_policy(sql, company_code="1", fiscal_year="2024")
@@ -181,18 +189,18 @@ def test_erp_profile_has_no_crm_vocabulary(justclick_profile):
 
 
 def test_crm_profile_keeps_its_four_templates(ecosafe_profile):
-    import query_templates
+    from nlu import query_templates
     assert sorted(query_templates.TEMPLATES) == [
         "crm_activity_count_month", "crm_activity_top_staff_month", "crm_contact_pipeline", "crm_customer_count"]
 
 
 def test_crm_profile_greets_as_crm(ecosafe_profile):
-    import copilot
+    from reporting import copilot
     assert "ECO SAFE" in copilot.COPILOT_GREETING
 
 
 def test_engine_reads_the_active_profile(monkeypatch):
-    from intent_classifier import classify_intent
+    from nlu.intent_classifier import classify_intent
     from tests.conftest import _load_profile
     try:
         _load_profile("ecosafe")
@@ -201,3 +209,65 @@ def test_engine_reads_the_active_profile(monkeypatch):
         assert classify_intent("كم نشاط سجلنا").sub_intent != "activity_count"
     finally:
         _load_profile("justclick")
+
+
+# ── invariant: no tenant table is left unscoped, in anything we ship ───
+def _outer_tables(sql):
+    """Tables a query reads directly; follows inline views when that is all the outer query has."""
+    from security import query_policy as qp
+    refs = qp._extract_table_aliases(qp._strip_subqueries(sql))
+    if refs:
+        return refs, sql
+    match = qp._INLINE_VIEW_RE.search(sql)
+    if not match:
+        return [], sql
+    start = sql.index("(", match.start())
+    depth, end = 0, start
+    for end in range(start, len(sql)):
+        depth += (sql[end] == "(") - (sql[end] == ")")
+        if depth == 0:
+            break
+    return _outer_tables(sql[start + 1:end])
+
+
+def _assert_scoped(label, sql):
+    from security import query_policy as qp
+    refs, scope_sql = _outer_tables(sql)
+    for table, alias in refs:
+        if table.upper() in qp.TENANT_TABLES and table.upper() not in qp.INHERITS_TENANT:
+            assert qp._already_filtered(scope_sql, "COMPANY_CODE", alias, table), \
+                f"{label}: {table} {alias} has no company filter\n{sql}"
+
+
+def test_every_template_leaves_no_tenant_table_unscoped(justclick_profile):
+    from nlu import query_templates
+    from security.scope import prepare_sql
+    for template in query_templates.TEMPLATES.values():
+        sql = query_templates.render_template(template, _entities_for(template))
+        safety, _ = prepare_sql(sql, user_id="u1", company_code="1", fiscal_year="2024")
+        assert safety.is_safe, template.name
+        _assert_scoped(f"template {template.name}", safety.sql)
+
+
+def test_every_dashboard_widget_leaves_no_tenant_table_unscoped(justclick_profile):
+    from reporting.dashboard_engine import DASHBOARDS
+    from security.scope import prepare_sql
+    checked = 0
+    for dash_id, dash in DASHBOARDS.items():
+        for widget in dash.widgets:
+            safety, _ = prepare_sql(widget.sql, user_id="u1", company_code="1", fiscal_year="2024")
+            assert safety.is_safe, f"{dash_id}/{widget.id}: {safety.blocked_reason}"
+            _assert_scoped(f"dashboard {dash_id}/{widget.id}", safety.sql)
+            checked += 1
+    assert checked >= 40
+
+
+def test_every_report_query_leaves_no_tenant_table_unscoped(justclick_profile):
+    from reporting.executive_reports import _REPORT_QUERIES, _resolve_flag_placeholders
+    from security.scope import prepare_sql
+    for rtype, queries in _REPORT_QUERIES.items():
+        for name, sql in queries.items():
+            safety, _ = prepare_sql(_resolve_flag_placeholders(sql), user_id="u1", company_code="1",
+                                    fiscal_year="2024", classify=False)
+            assert safety.is_safe, f"{rtype}/{name}: {safety.blocked_reason}"
+            _assert_scoped(f"report {rtype}/{name}", safety.sql)

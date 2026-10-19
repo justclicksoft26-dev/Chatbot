@@ -4,11 +4,12 @@ Uses the ERP Intelligence Pipeline.
 Accepts: { "user": "...", "question": "..." }
 Returns: { "reply": "...", "method": "...", "row_count": 0 }
 """
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from pydantic import BaseModel, field_validator
 from typing import Optional
 
 from pipeline import process_question
+from routers.auth import caller_id
 from routers.schemas import ScopeValue
 
 router = APIRouter(prefix="/api", tags=["widget"])
@@ -39,10 +40,9 @@ class WidgetResponse(BaseModel):
 
 
 @router.post("/chat", response_model=WidgetResponse)
-async def widget_chat(req: WidgetRequest):
+async def widget_chat(req: WidgetRequest, request: Request):
+    uid = caller_id(request, req.user or "anonymous")      # JWT beats the name sent by the page
     try:
-        uid = req.user or "anonymous"
-
         result = await process_question(
             question=req.question,
             user_id=uid,

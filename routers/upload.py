@@ -4,16 +4,18 @@ routers/upload.py — File Upload & Image Analysis Endpoint
 """
 import logging
 import traceback
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Request
 from typing import Optional
 
-from image_analyzer import (
+from llm.image_analyzer import (
     validate_image,
+    looks_like_image,
     get_mime_type,
     analyze_image,
     analyze_and_query,
     MAX_FILE_SIZE,
 )
+from routers.auth import caller_id, ensure_company_access
 from routers.schemas import ScopeValue
 
 log = logging.getLogger("upload")
@@ -23,6 +25,7 @@ router = APIRouter(prefix="/chat", tags=["upload"])
 
 @router.post("/upload")
 async def upload_and_analyze(
+    request: Request,
     file: UploadFile = File(...),
     question: str = Form(""),
     user_id: str = Form("web_user"),
@@ -48,6 +51,9 @@ async def upload_and_analyze(
     - suggested_query: سؤال مقترح
     - pipeline_answer: إجابة من DB (لو analyze_only=False وفيه سؤال)
     """
+    user_id = caller_id(request, user_id)
+    await ensure_company_access(user_id, company_code)
+
     # ── Validate file ──
     if not file.filename:
         raise HTTPException(status_code=400, detail="لم يتم رفع ملف")
@@ -60,6 +66,9 @@ async def upload_and_analyze(
     error = validate_image(file.filename, file_size)
     if error:
         raise HTTPException(status_code=400, detail=error)
+
+    if not looks_like_image(content):
+        raise HTTPException(status_code=400, detail="محتوى الملف ليس صورة صالحة")
 
     mime_type = get_mime_type(file.filename)
     log.info(f"[UPLOAD] file={file.filename} size={file_size} type={mime_type} "

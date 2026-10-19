@@ -5,7 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app as app_module
-import rbac
+from security import rbac
 from erp_actions import executor, store
 from pipeline import PipelineResult
 
@@ -64,6 +64,12 @@ def test_rate_limit_blocks_after_limit(client, monkeypatch, fake_pipeline):
     monkeypatch.setattr(app_module, "_RATE_LIMIT_CHAT", 3)
     codes = [client.post("/chat/", json={"question": "hi"}).status_code for _ in range(5)]
     assert codes == [200, 200, 200, 429, 429]
+
+
+def test_widget_endpoint_is_rate_limited_too(client, monkeypatch):
+    monkeypatch.setattr(app_module, "_RATE_LIMIT_CHAT", 2)
+    codes = [client.post("/api/chat", json={"question": "hi"}).status_code for _ in range(4)]
+    assert codes[2:] == [429, 429]
 
 
 def test_rate_limit_is_per_client(monkeypatch):
@@ -274,9 +280,9 @@ def test_actions_need_a_token_in_jwt_mode(client, actions_on, jwt_mode):
 def test_read_endpoints(client, actions_on, fake_db):
     action_id = plan_via_api(client).json()["action_id"]
     assert client.get("/actions/pending?user_id=boss").json()["count"] == 1
-    assert client.get(f"/actions/{action_id}").json()["id"] == action_id
-    assert client.get("/actions/stats").json()["total_actions"] == 1
-    assert client.get("/actions/nope").status_code == 404
+    assert client.get(f"/actions/{action_id}?user_id=boss").json()["id"] == action_id
+    assert client.get("/actions/stats?user_id=boss").json()["total_actions"] == 1
+    assert client.get("/actions/nope?user_id=boss").status_code == 404
 
 
 def test_scope_validation_on_actions_endpoints(client, actions_on):

@@ -5,3 +5,7 @@ NAME = "ecosafe"
 TITLE = "ECO SAFE CRM Chatbot"
 BRAND = "ECO SAFE CRM"
 COMMENTS_FILE = Path(__file__).parent / "comments.sql"
+# The CRM tables have no company / fiscal-year / branch columns, so nothing is injected.
+TENANT_FILTERING = False
+from .seeds import SEED_KNOWLEDGE  # noqa: E402,F401
+from . import ontology as ONTOLOGY  # noqa: E402,F401

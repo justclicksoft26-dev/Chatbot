@@ -10,7 +10,7 @@ import logging
 import time
 from typing import Optional
 
-from db import execute_read_query as execute_query
+from proactive.scoped import execute_query
 from .alerts import Alert, make_alert, alert_store
 
 log = logging.getLogger("proactive.monitor")

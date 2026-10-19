@@ -1,7 +1,7 @@
 """sql_safety: the gate every generated query passes through before Oracle."""
 import pytest
 
-import sql_safety as s
+from security import sql_safety as s
 
 
 @pytest.fixture(autouse=True)

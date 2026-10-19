@@ -288,7 +288,7 @@ async def _execute_dml(sql: str, params: dict) -> int:
     Returns the number of affected rows.
     """
     import asyncio
-    from db import get_dml_pool
+    from infra.db import get_dml_pool
 
     pool = await get_dml_pool()
 

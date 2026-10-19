@@ -3,8 +3,8 @@ import re
 
 import pytest
 
-import query_policy as qp
-from query_policy import QueryType, apply_policy, classify_query, decide_policy
+from security import query_policy as qp
+from security.query_policy import QueryType, apply_policy, classify_query, decide_policy
 
 
 def norm(sql):
@@ -167,3 +167,118 @@ def test_already_filtered_variants():
     assert not f("ON a.COMPANY_CODE = b.COMPANY_CODE", "COMPANY_CODE", "a")
     assert not f("WHERE other.COMPANY_CODE = 1", "COMPANY_CODE", "c")
     assert not f("WHERE X = 1", "COMPANY_CODE", "")
+
+
+# ── generated SQL must not choose its own company / year ───────────────
+@pytest.mark.parametrize("sql, expected", [
+    ("SELECT * FROM CUST WHERE COMPANY_CODE = 2", "SELECT * FROM CUST"),
+    ("SELECT * FROM CUST WHERE COMPANY_CODE = 2 AND ACTIVE = 1", "SELECT * FROM CUST WHERE ACTIVE = 1"),
+    ("SELECT * FROM CUST WHERE ACTIVE = 1 AND COMPANY_CODE = 2", "SELECT * FROM CUST WHERE ACTIVE = 1"),
+    ("SELECT * FROM MAIN_INV m WHERE m.COMPANY_CODE = 2 AND m.FISCAL_YEAR = 2023 AND m.INVTYPE = 0",
+     "SELECT * FROM MAIN_INV m WHERE m.INVTYPE = 0"),
+    ("SELECT * FROM CUST WHERE COMPANY_CODE = '2' ORDER BY CUST_NAME", "SELECT * FROM CUST  ORDER BY CUST_NAME"),
+    ("SELECT * FROM CUST WHERE ACTIVE = 1 AND COMPANY_CODE = :co", "SELECT * FROM CUST WHERE ACTIVE = 1"),
+    ("SELECT * FROM CUST WHERE (COMPANY_CODE = 2 AND ACTIVE = 1)", "SELECT * FROM CUST WHERE ( ACTIVE = 1)"),
+])
+def test_strip_tenant_conditions(sql, expected):
+    assert norm(qp.strip_tenant_conditions(sql)) == norm(expected)
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT * FROM A a JOIN B b ON a.COMPANY_CODE = b.COMPANY_CODE",
+    "SELECT * FROM CUST WHERE COMPANY_CODE IN (1, 2)",
+    "SELECT * FROM CUST WHERE ACTIVE = 1",
+])
+def test_strip_leaves_joins_and_lists_alone(sql):
+    assert qp.strip_tenant_conditions(sql) == sql
+
+
+def test_stripped_sql_gets_the_callers_company():
+    sql = qp.strip_tenant_conditions("SELECT * FROM EMPLOYEES WHERE COMPANY_CODE = 2")
+    assert norm(apply_policy(sql, company_code="1")) == "SELECT * FROM EMPLOYEES WHERE COMPANY_CODE = 1"
+
+
+# ── comparisons are exempt from the current company, not from the allowed set ──
+def test_comparison_is_limited_to_the_companies_the_caller_may_see():
+    out = norm(apply_policy("SELECT COMPANY_CODE, COUNT(*) FROM CUST GROUP BY COMPANY_CODE",
+                            company_code="1", allowed_companies={"1", "2"}))
+    assert "COMPANY_CODE IN (1, 2)" in out and out.index("COMPANY_CODE IN") < out.index("GROUP BY")
+
+
+def test_comparison_without_a_limit_stays_unfiltered():
+    sql = "SELECT COMPANY_CODE, COUNT(*) FROM CUST GROUP BY COMPANY_CODE"
+    assert apply_policy(sql, company_code="1") == sql
+
+
+def test_comparison_by_question_wording_is_limited_too():
+    out = norm(apply_policy("SELECT * FROM MAIN_INV", company_code="1",
+                            question="قارن المبيعات بين الشركات", allowed_companies={"3"}))
+    assert "COMPANY_CODE IN (3)" in out
+
+
+def test_restriction_ignores_reference_tables():
+    sql = "SELECT * FROM CHARTS"
+    assert apply_policy(sql, company_code="1", allowed_companies={"1"}) == sql
+
+
+def test_non_comparison_still_uses_the_single_company():
+    out = norm(apply_policy("SELECT * FROM CUST", company_code="1", allowed_companies={"1", "2"}))
+    assert out == "SELECT * FROM CUST WHERE COMPANY_CODE = 1"
+
+
+# ── inline views: the real tables live inside them ─────────────────────
+def test_inline_view_is_scoped_inside():
+    out = norm(apply_policy("SELECT QTY FROM (SELECT i.ITEMID, 1 AS QTY FROM ITEMS i) WHERE QTY > 0", company_code="3"))
+    assert out == "SELECT QTY FROM (SELECT i.ITEMID, 1 AS QTY FROM ITEMS i WHERE i.COMPANY_CODE = 3) WHERE QTY > 0"
+
+
+def test_inline_view_with_cross_join_scopes_both_tenant_tables():
+    out = norm(apply_policy("SELECT * FROM (SELECT s.STORE_NAME, i.ITEMNAME FROM ITEMS i CROSS JOIN STORE s) WHERE 1=1",
+                            company_code="3"))
+    assert "i.COMPANY_CODE = 3" in out and "s.COMPANY_CODE = 3" in out
+
+
+def test_inline_view_keeps_its_own_where_and_order():
+    out = norm(apply_policy("SELECT * FROM (SELECT * FROM CUST WHERE ACTIVE = 1 OR X = 2 ORDER BY CUSTID) ORDER BY 1",
+                            company_code="1"))
+    assert "(SELECT * FROM CUST WHERE (ACTIVE = 1 OR X = 2) AND COMPANY_CODE = 1 ORDER BY CUSTID)" in out
+
+
+def test_nested_inline_views_are_followed():
+    out = norm(apply_policy("SELECT * FROM (SELECT * FROM (SELECT * FROM CUST) a) b", company_code="1"))
+    assert "COMPANY_CODE = 1" in out
+
+
+def test_outer_tables_win_over_inline_views():
+    sql = "SELECT * FROM CUST c WHERE c.CUSTID IN (SELECT CUSTID FROM EMPLOYEES)"
+    assert norm(apply_policy(sql, company_code="1")).endswith("AND c.COMPANY_CODE = 1")
+
+
+def test_unbalanced_sql_never_crashes_the_policy():
+    assert isinstance(apply_policy("SELECT * FROM (SELECT * FROM CUST", company_code="1"), str)
+
+
+# ── every way of listing tables ────────────────────────────────────────
+def test_comma_joined_tables_are_all_scoped():
+    out = norm(apply_policy("SELECT * FROM EMPLOYEES e, CUST c WHERE e.X = c.Y", company_code="1"))
+    assert "e.COMPANY_CODE = 1" in out and "c.COMPANY_CODE = 1" in out
+
+
+def test_comma_join_without_aliases():
+    out = norm(apply_policy("SELECT * FROM EMPLOYEES, CUST WHERE EMPLOYEES.X = CUST.Y", company_code="1"))
+    assert out.count("COMPANY_CODE = 1") >= 1 and "COMPANY_CODE = 1" in out
+
+
+def test_cross_join_table_is_scoped():
+    out = norm(apply_policy("SELECT * FROM ITEMS i CROSS JOIN STORE s", company_code="1"))
+    assert "i.COMPANY_CODE = 1" in out and "s.COMPANY_CODE = 1" in out
+
+
+def test_join_without_on_uses_the_alias_correctly():
+    refs = qp._extract_table_aliases("SELECT * FROM A a CROSS JOIN B b JOIN C ON 1=1 LEFT JOIN D d USING (x)")
+    assert refs == [("A", "a"), ("B", "b"), ("C", ""), ("D", "d")]
+
+
+def test_aliases_never_swallow_keywords():
+    refs = qp._extract_table_aliases("SELECT * FROM CUST WHERE X = 1 ORDER BY 1")
+    assert refs == [("CUST", "")]

@@ -43,9 +43,9 @@ def _load_profile(name: str):
     import importlib
     os.environ["APP_PROFILE"] = name
     os.environ.pop("SCHEMA_FILE", None)
-    import schema_loader
-    import query_templates
-    import semantic_registry
+    from nlu import schema_loader
+    from nlu import query_templates
+    from nlu import semantic_registry
     schema_loader._flag_concept_map = None
     asyncio.run(schema_loader.init_schema_context())
     importlib.reload(semantic_registry)

@@ -5,6 +5,7 @@ Secured with role-based API key authentication.
 """
 import os
 import logging
+import hmac
 from fastapi import APIRouter, HTTPException, Depends, Request
 from pydantic import BaseModel, field_validator
 from typing import Optional
@@ -57,19 +58,25 @@ def _check_learning_auth(request: Request, require_admin: bool = False) -> str:
     Validate learning API access.
     Returns the role: 'admin', 'user', or raises 401/403.
 
-    When LEARNING_API_KEY is not set, all access is allowed (dev mode).
+    When LEARNING_API_KEY is not set, reading and feedback stay open (the global
+    API key still applies) but admin operations need the platform admin credentials
+    (ADMIN_API_KEY / admin JWT) — they are never open by default.
     """
     if not _LEARNING_API_KEY:
-        return "admin"  # dev mode — no auth configured
+        if require_admin:
+            from routers.auth import require_admin as _platform_admin
+            _platform_admin(request)
+            return "admin"
+        return "user"
 
     key = request.headers.get("X-Learning-Key") or request.headers.get("X-API-Key", "")
 
     # Admin key grants full access
-    if _LEARNING_ADMIN_KEY and key == _LEARNING_ADMIN_KEY:
+    if _LEARNING_ADMIN_KEY and hmac.compare_digest(key.encode(), _LEARNING_ADMIN_KEY.encode()):
         return "admin"
 
     # Regular learning key grants read + feedback access
-    if key == _LEARNING_API_KEY:
+    if hmac.compare_digest(key.encode(), _LEARNING_API_KEY.encode()):
         if require_admin:
             raise HTTPException(403, "هذا الإجراء يتطلب صلاحيات مسؤول Learning")
         return "user"
@@ -105,7 +112,8 @@ class KnowledgeRequest(BaseModel):
 @router.post("/knowledge")
 async def add_knowledge_entry(req: KnowledgeRequest, _role: str = Depends(require_learning_admin)):
     safe, reason = is_safe_knowledge(
-        req.concept, req.description_ar, req.sql_patterns
+        req.concept, " ".join([req.description_ar, req.description_en, *req.terms_ar, *req.terms_en]),
+        req.sql_patterns,
     )
     if not safe:
         raise HTTPException(400, reason)
@@ -149,6 +157,13 @@ async def train_from_query_endpoint(
         raise HTTPException(400, "sql مطلوب")
     if not req.description.strip():
         raise HTTPException(400, "description مطلوب")
+    # what is learned here is later fed to the LLM, so it gets the same checks as manual knowledge
+    safe, reason = is_safe_sql(req.sql)
+    if not safe:
+        raise HTTPException(400, f"SQL غير مسموح للتعلّم: {reason}")
+    safe, reason = is_safe_knowledge(req.report_name, req.description)
+    if not safe:
+        raise HTTPException(400, reason)
     try:
         result = train_from_query(
             report_name=req.report_name.strip(),
