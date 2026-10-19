@@ -128,9 +128,11 @@ def args_for(base, tmp_path, **kw):
 
 def test_scenario_runs_against_the_http_api_and_the_report_is_written(server, tmp_path):
     sprint = SPRINTS[1]
+    conditions = " AND ".join(["INVTYPE = 0", "INVTYPE = 1", "CUST_TYPE = 0", "CUST_TYPE = 1",
+                               "END_SERVICE_FLG = 'N'", "RETURN_FLAG", "FINALTOTAL", "FETCH FIRST 5 ROWS ONLY"])
     for sc in sprint.scenarios:
-        Fake.answers[sc.question] = resp(sql_generated=" ".join(f"SELECT 1 FROM {t} WHERE {' AND '.join(['INVTYPE = 0', 'INVTYPE = 1', 'CUST_TYPE = 0', 'CUST_TYPE = 1', 'END_SERVICE_FLG = \'N\'', 'RETURN_FLAG', 'FINALTOTAL', 'FETCH FIRST 5 ROWS ONLY'])}" for t in (sc.tables or ["X"])),
-                                         row_count=5)
+        sql = " ".join(f"SELECT 1 FROM {t} WHERE {conditions}" for t in (sc.tables or ["X"]))
+        Fake.answers[sc.question] = resp(sql_generated=sql, row_count=5)
     Fake.answers["ما هو الطقس اليوم؟"] = {"answer": "خارج النطاق", "method": "out_of_scope", "sql_generated": "", "row_count": 0}
     args = args_for(server, tmp_path)
     results = [run_uat.run_scenario(sc, args) for sc in sprint.scenarios]
