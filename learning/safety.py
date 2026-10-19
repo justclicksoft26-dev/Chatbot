@@ -76,8 +76,8 @@ def is_safe_sql(sql: str) -> tuple[bool, str]:
 
     sql_upper = sql.upper().strip()
 
-    # Must start with SELECT
-    if not sql_upper.startswith("SELECT"):
+    # Must start with SELECT (or a WITH ... SELECT)
+    if not sql_upper.startswith(("SELECT", "WITH")):
         return False, "Only SELECT statements are safe to learn"
 
     # Check dangerous patterns
@@ -152,7 +152,7 @@ def is_safe_knowledge(concept: str, description: str = "",
         "override",
         "admin mode",
     ]
-    desc_lower = (description or "").lower()
+    desc_lower = f"{concept} {description or ''}".lower()
     for cue in injection_cues:
         if cue in desc_lower:
             return False, f"Potential prompt injection: '{cue}'"

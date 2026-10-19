@@ -112,7 +112,8 @@ class KnowledgeRequest(BaseModel):
 @router.post("/knowledge")
 async def add_knowledge_entry(req: KnowledgeRequest, _role: str = Depends(require_learning_admin)):
     safe, reason = is_safe_knowledge(
-        req.concept, req.description_ar, req.sql_patterns
+        req.concept, " ".join([req.description_ar, req.description_en, *req.terms_ar, *req.terms_en]),
+        req.sql_patterns,
     )
     if not safe:
         raise HTTPException(400, reason)
@@ -156,6 +157,13 @@ async def train_from_query_endpoint(
         raise HTTPException(400, "sql مطلوب")
     if not req.description.strip():
         raise HTTPException(400, "description مطلوب")
+    # what is learned here is later fed to the LLM, so it gets the same checks as manual knowledge
+    safe, reason = is_safe_sql(req.sql)
+    if not safe:
+        raise HTTPException(400, f"SQL غير مسموح للتعلّم: {reason}")
+    safe, reason = is_safe_knowledge(req.report_name, req.description)
+    if not safe:
+        raise HTTPException(400, reason)
     try:
         result = train_from_query(
             report_name=req.report_name.strip(),

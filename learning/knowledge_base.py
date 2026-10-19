@@ -7,6 +7,9 @@ import json
 import logging
 import re
 from typing import Optional
+
+import profiles
+
 log = logging.getLogger("learning.knowledge")
 
 
@@ -14,165 +17,11 @@ log = logging.getLogger("learning.knowledge")
 # Seed Knowledge (initial ERP concepts)
 # ═══════════════════════════════════════════════════════════════════
 
-_SEED_KNOWLEDGE = [
-    {
-        "concept": "sales_invoice_flow",
-        "description_ar": "دورة فاتورة المبيعات: إنشاء فاتورة (MAIN_INV) → بنود الفاتورة (DETAIL_INV) → السداد (PAYED) → التحصيل",
-        "description_en": "Sales invoice flow: create invoice → line items → payment → collection",
-        "domain": "invoicing",
-        "tables_json": '["MAIN_INV", "DETAIL_INV", "PAYED", "MAIN_INV_PAYED", "CUST"]',
-        "terms_ar_json": '["فاتورة", "بيع", "سداد", "تحصيل", "مرتجع"]',
-        "terms_en_json": '["invoice", "sale", "payment", "collection", "return"]',
-        "sql_patterns": json.dumps([
-            "MAIN_INV.INVTYPE: 0=بيع, 1=شراء",
-            "MAIN_INV.RETURN_FLAG: 0=عادية, 1=مرتجع",
-            "JOIN CUST ON CUSTID = CUST_ID AND CUST_TYPE = CUST_TYPE",
-        ]),
-    },
-    {
-        "concept": "accounting_voucher_flow",
-        "description_ar": "دورة القيد المحاسبي: إنشاء قيد (VOUCHERS) → تفاصيل مدين/دائن (VOUCHERS_DET) → ربط بالحسابات (CHARTS)",
-        "description_en": "Accounting voucher flow: create journal entry → debit/credit details → link to chart of accounts",
-        "domain": "accounting",
-        "tables_json": '["VOUCHERS", "VOUCHERS_DET", "CHARTS", "COST_CENTERS"]',
-        "terms_ar_json": '["قيد", "يومية", "مدين", "دائن", "حساب", "ميزان"]',
-        "terms_en_json": '["voucher", "journal", "debit", "credit", "account", "trial balance"]',
-        "sql_patterns": json.dumps([
-            "JOIN ON (VOUCHER_MONTH, VOUCHER_CODE) — لازم العمودين",
-            "AMOUNT > 0 = مدين, AMOUNT < 0 = دائن",
-            "CHART_TYPE: 0=ميزانية, 1=قائمة الدخل",
-        ]),
-    },
-    {
-        "concept": "inventory_transaction_flow",
-        "description_ar": "حركات المخزن: إضافة/صرف (TRANSACTION) → أرصدة إجمالية (TRANSACTION_TOT) → بيانات الصنف (ITEMS)",
-        "description_en": "Inventory flow: add/issue → total balances → item master data",
-        "domain": "inventory",
-        "tables_json": '["TRANSACTION", "TRANSACTION_TOT", "ITEMS", "STORE", "ITEMGROUP"]',
-        "terms_ar_json": '["مخزن", "صنف", "كمية", "صرف", "إضافة", "جرد", "كارت صنف"]',
-        "terms_en_json": '["store", "item", "quantity", "issue", "receipt", "stock count"]',
-        "sql_patterns": json.dumps([
-            "TRANSACTION_TOT للأرصدة الإجمالية — أسرع من TRANSACTION",
-            "JOIN ITEMS ON ITEMID, JOIN STORE ON STORE_CODE",
-            "QTY <> 0 لاستبعاد الأصناف بدون رصيد",
-        ]),
-    },
-    {
-        "concept": "hr_employee_flow",
-        "description_ar": "بيانات الموظفين: بيانات أساسية (EMPLOYEES) → رواتب (EMPLOYEE_SALARIES) → حضور (ATT_EMP) → إجازات (EMP_VACATION) → سلف (EMP_LOANS)",
-        "description_en": "HR flow: master data → salaries → attendance → leaves → loans",
-        "domain": "hr",
-        "tables_json": '["EMPLOYEES", "EMPLOYEE_SALARIES", "ATT_EMP", "EMP_VACATION", "EMP_LOANS"]',
-        "terms_ar_json": '["موظف", "راتب", "حضور", "انصراف", "إجازة", "سلفة"]',
-        "terms_en_json": '["employee", "salary", "attendance", "leave", "loan"]',
-        "sql_patterns": json.dumps([
-            "EMP_ACTIVE = '1' للموظفين النشطين",
-            "END_SERVICE_FLG = 'N' للموظفين على رأس العمل",
-        ]),
-    },
-    {
-        "concept": "chart_of_accounts_structure",
-        "description_ar": "شجرة الحسابات: هرمية عبر PARENT_CHART_CODE. CHART_TYPE=0 ميزانية (أصول/خصوم)، CHART_TYPE=1 قائمة الدخل (إيرادات/مصروفات). CHART_NATURE=0 عام، 1 مساعد",
-        "description_en": "Chart of accounts: hierarchical via PARENT_CHART_CODE. Type 0=balance sheet, 1=income statement. Nature 0=main, 1=sub",
-        "domain": "accounting",
-        "tables_json": '["CHARTS"]',
-        "terms_ar_json": '["شجرة الحسابات", "دليل الحسابات", "حساب رئيسي", "حساب فرعي", "ميزانية", "قائمة الدخل"]',
-        "terms_en_json": '["chart of accounts", "account tree", "main account", "sub account"]',
-        "sql_patterns": json.dumps([
-            "DECODE(CHART_TYPE, 0, 'ميزانية', 1, 'قائمة الدخل')",
-            "DECODE(CHART_NATURE, 0, 'عام', 1, 'مساعد')",
-            "CONNECT BY PRIOR CHART_CODE = PARENT_CHART_CODE للشجرة",
-        ]),
-    },
-    {
-        "concept": "multi_company",
-        "description_ar": "نظام متعدد الشركات: COMPANY_CODE يفصل بيانات كل شركة. COMPANIES جدول الشركات، BRANCHES الفروع.",
-        "description_en": "Multi-tenant: COMPANY_CODE separates data per company.",
-        "domain": "system",
-        "tables_json": '["COMPANIES", "BRANCHES"]',
-        "terms_ar_json": '["شركة", "فرع", "كود الشركة"]',
-        "terms_en_json": '["company", "branch", "tenant"]',
-        "sql_patterns": json.dumps([
-            "COMPANY_CODE في معظم الجداول (MAIN_INV, CUST, EMPLOYEES, ...)",
-            "FISCAL_YEAR في الجداول المالية (MAIN_INV, VOUCHERS, ...)",
-        ]),
-    },
-    # ── ECO SAFE CRM concepts ─────────────────────────────────────────
-    {
-        "concept": "crm_activity_flow",
-        "description_ar": "دورة النشاط CRM: موظف داخلي (ACC_USERS) يسجّل نشاط (ACTIVITIES) مع عميل (CUST). نوع النشاط (ACTIVITY_NAME) مخزّن كـ VARCHAR2: '1'=مكالمة, '2'=واتساب, '3'=اجتماع, '4'=ايميل مرسل, '5'=ايميل وارد, '6'=فولو أب",
-        "description_en": "CRM activity flow: internal staff (ACC_USERS) logs activity (ACTIVITIES) against a client (CUST). ACTIVITY_NAME stored as VARCHAR2 codes.",
-        "domain": "activities",
-        "tables_json": '["ACTIVITIES", "ACC_USERS", "CUST"]',
-        "terms_ar_json": '["نشاط", "مكالمة", "واتساب", "اجتماع", "فولو أب", "متابعة", "ايميل", "موظف", "عميل"]',
-        "terms_en_json": '["activity", "call", "whatsapp", "meeting", "follow-up", "email", "staff", "client"]',
-        "sql_patterns": json.dumps([
-            "ACTIVITY_NAME='1' مكالمة | '2' واتساب | '3' اجتماع | '4' ايميل مرسل | '5' ايميل وارد | '6' فولو أب",
-            "ACTIVITIES.CREATED_BY = ACC_USERS.USER_NAME (ليس EMPLOYEES)",
-            "JOIN ACC_USERS au ON au.USER_NAME = a.CREATED_BY → au.REAL_NAME للاسم",
-            "NVL(c.CUST_NAME, c.CUST_NAME_EN) AS client_name — 199+ عميل بدون اسم عربي",
-            "TRUNC(a.CREATED_DATE,'IW') = TRUNC(SYSDATE,'IW') للأسبوع الحالي",
-            "TRUNC(a.CREATED_DATE,'MM') = TRUNC(SYSDATE,'MM') للشهر الحالي",
-        ]),
-    },
-    {
-        "concept": "crm_client_structure",
-        "description_ar": "جدول العملاء CUST: CUSTID المفتاح الأساسي. CUST_NAME عربي (قد يكون NULL)، CUST_NAME_EN إنجليزي (أكثر اكتمالاً). CUST.ACTIVE = NULL في كل السجلات — لا تفلتر عليه. CUST.ASSIGNED_SALES = NULL — لمعرفة عملاء موظف استخدم ACTIVITIES.",
-        "description_en": "CUST table: CUSTID PK. CUST_NAME Arabic (may be NULL), CUST_NAME_EN English (more complete). ACTIVE=NULL always, ASSIGNED_SALES=NULL always.",
-        "domain": "customers",
-        "tables_json": '["CUST", "ACTIVITIES", "ACC_USERS"]',
-        "terms_ar_json": '["عميل", "عملاء", "شركة", "جهة اتصال", "مدينة", "دولة"]',
-        "terms_en_json": '["client", "customer", "company", "contact", "city", "country"]',
-        "sql_patterns": json.dumps([
-            "NVL(c.CUST_NAME, c.CUST_NAME_EN) AS client_name — لا تستخدم CUST_NAME وحده",
-            "CUST.ACTIVE = NULL — لا تفلتر عليه أبداً",
-            "للبحث النصي: UPPER(NVL(c.CUST_NAME, c.CUST_NAME_EN)) LIKE '%ARAMCO%'",
-            "عدد العملاء: SELECT COUNT(*) FROM CUST (بدون فلتر ACTIVE)",
-        ]),
-    },
-    {
-        "concept": "crm_contacts_pipeline",
-        "description_ar": "جهات الاتصال EMPLOYEES: موظفو شركات العملاء (جهات خارجية، ليسوا موظفو ECO SAFE). STATUS: '1'=مهتم, '2'=محتمل, '3'=مؤكد (funnel مبيعات). EMPLOYEES.CUST_ID يربط بـ CUST.",
-        "description_en": "EMPLOYEES table: external contacts (client company employees, NOT internal ECO SAFE staff). STATUS pipeline: 1=interested, 2=potential, 3=confirmed.",
-        "domain": "customers",
-        "tables_json": '["EMPLOYEES", "CUST"]',
-        "terms_ar_json": '["جهة اتصال", "مهتم", "محتمل", "مؤكد", "فرصة", "صفقة", "lead"]',
-        "terms_en_json": '["contact", "interested", "potential", "confirmed", "lead", "pipeline"]',
-        "sql_patterns": json.dumps([
-            "EMPLOYEES.STATUS: '1'=مهتم | '2'=محتمل | '3'=مؤكد",
-            "EMPLOYEES ≠ ACC_USERS — لا تخلط بينهما",
-            "JOIN CUST c ON e.CUST_ID = c.CUSTID لاسم الشركة",
-            "كم مهتم: SELECT COUNT(*) FROM EMPLOYEES WHERE STATUS='1'",
-        ]),
-    },
-    {
-        "concept": "crm_internal_staff",
-        "description_ar": "موظفو ECO SAFE الداخليون: جدول ACC_USERS. REAL_NAME مخزّن بالإنجليزي فقط. للبحث بالاسم العربي يجب الترجمة أولاً: منتالة→menntalah, سوسن→sawsan, ريهام→reham, سارة→sara, غادة→ghada, هاجر→hager, مرفت→mervat, رضوى→radwa, هبة→heba, بسمالة→basmalla",
-        "description_en": "ECO SAFE internal staff: ACC_USERS table. REAL_NAME stored in English only. Arabic name queries must be transliterated.",
-        "domain": "hr",
-        "tables_json": '["ACC_USERS"]',
-        "terms_ar_json": '["موظف داخلي", "فريق ECO SAFE", "مستخدم النظام", "منتالة", "سوسن", "ريهام", "سارة"]',
-        "terms_en_json": '["staff", "internal user", "menntalah", "sawsan", "reham", "sara"]',
-        "sql_patterns": json.dumps([
-            "ACC_USERS.REAL_NAME بالإنجليزي: LIKE '%sawsan%' وليس LIKE '%سوسن%'",
-            "ACC_USERS.USER_NAME = ACTIVITIES.CREATED_BY للربط",
-            "قائمة الموظفين: SELECT USER_NAME, REAL_NAME FROM ACC_USERS",
-        ]),
-    },
-    {
-        "concept": "crm_courses",
-        "description_ar": "الدورات التدريبية: جدول COURSES_PLAN أو مشابه. COURSE_NAME_AR اسم الدورة عربي، COURSE_DATE التاريخ، NUM_OF_DELEGATES عدد المشاركين.",
-        "description_en": "Training courses: COURSES_PLAN table. Course name, date, and delegate count.",
-        "domain": "courses",
-        "tables_json": '["COURSES_PLAN"]',
-        "terms_ar_json": '["دورة", "تدريب", "كورس", "مشارك", "داخلي", "خارجي"]',
-        "terms_en_json": '["course", "training", "delegate", "inhouse", "external"]',
-        "sql_patterns": json.dumps([
-            "COURSE_NAME_AR اسم الدورة | NUM_OF_DELEGATES عدد المشاركين",
-            "للدورات الداخلية: INHOUSE_FLAG='Y' أو COURSE_TYPE='داخلي'",
-        ]),
-    },
-]
+
+
+def _seeds() -> list[dict]:
+    """Seed concepts of the active profile (each profile describes only its own tables)."""
+    return list(getattr(profiles.active(), "SEED_KNOWLEDGE", []))
 
 
 def seed_knowledge() -> int:
@@ -182,8 +31,10 @@ def seed_knowledge() -> int:
     Called once at startup by learning/engine.py → init_learning_engine().
     """
     from .store import get_knowledge_conn
+    seeds = _seeds()
+    _drop_stale_seeds({e["concept"] for e in seeds})
     count = 0
-    for entry in _SEED_KNOWLEDGE:
+    for entry in seeds:
         try:
             with get_knowledge_conn() as conn:
                 conn.execute(
@@ -208,8 +59,20 @@ def seed_knowledge() -> int:
             count += 1
         except Exception as e:
             log.warning(f"[KNOWLEDGE] seed entry '{entry.get('concept','')}' failed: {e}")
-    log.info(f"[KNOWLEDGE] seeded {count}/{len(_SEED_KNOWLEDGE)} entries")
+    log.info(f"[KNOWLEDGE] seeded {count}/{len(seeds)} entries")
     return count
+
+
+def _drop_stale_seeds(current: set[str]) -> None:
+    """Seeds left over from another profile would feed foreign tables to the LLM; learned entries stay."""
+    from .store import get_knowledge_conn
+    try:
+        with get_knowledge_conn() as conn:
+            for (concept,) in conn.execute("SELECT concept FROM erp_knowledge WHERE source='seed'").fetchall():
+                if concept not in current:
+                    conn.execute("DELETE FROM erp_knowledge WHERE concept=? AND source='seed'", (concept,))
+    except Exception as e:
+        log.warning(f"[KNOWLEDGE] could not clean stale seeds: {e}")
 
 
 # ═══════════════════════════════════════════════════════════════════
