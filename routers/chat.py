@@ -6,7 +6,7 @@ import csv
 import io
 import logging
 import traceback
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, field_validator
 from typing import List, Optional
@@ -20,6 +20,7 @@ from nlu.query_templates import list_templates
 from infra.cache import get_all_stats as get_cache_stats, invalidate_all, sql_cache, dash_cache
 from security.company_manager import get_user_companies
 from security import rbac as _rbac
+from routers.auth import caller_id, require_admin
 from routers.schemas import ScopeValue
 
 log = logging.getLogger("chat")
@@ -81,13 +82,7 @@ class ChatResponse(BaseModel):
 @router.post("/", response_model=ChatResponse)
 async def chat(req: ChatRequest, request: Request):
     try:
-        try:
-            effective_user_id = _rbac.resolve_user_id(dict(request.headers), req.user_id)
-        except _rbac.AuthenticationRequired:
-            raise HTTPException(
-                status_code=401,
-                detail="المصادقة مطلوبة — يرجى إرسال Authorization: Bearer <token> صالح",
-            )
+        effective_user_id = caller_id(request, req.user_id)
 
         history = [{"role": m.role, "content": m.content} for m in req.history]
 
@@ -181,12 +176,12 @@ async def chat(req: ChatRequest, request: Request):
 
 # ── Usage & Provider endpoints ─────────────────────────────────────
 
-@router.get("/usage")
+@router.get("/usage", dependencies=[Depends(require_admin)])
 async def usage():
     return get_usage()
 
 
-@router.get("/provider")
+@router.get("/provider", dependencies=[Depends(require_admin)])
 async def get_provider():
     return {"provider": _get_provider()}
 
@@ -195,7 +190,7 @@ class ProviderRequest(BaseModel):
     provider: str
 
 
-@router.post("/provider")
+@router.post("/provider", dependencies=[Depends(require_admin)])
 async def switch_provider(req: ProviderRequest):
     try:
         set_provider(req.provider)
@@ -206,13 +201,13 @@ async def switch_provider(req: ProviderRequest):
 
 # ── Admin / Debug endpoints ────────────────────────────────────────
 
-@router.get("/schema-context")
+@router.get("/schema-context", dependencies=[Depends(require_admin)])
 async def get_context():
     ctx = get_schema_context()
     return {"length": len(ctx), "preview": ctx[:2000]}
 
 
-@router.get("/audit")
+@router.get("/audit", dependencies=[Depends(require_admin)])
 async def audit(limit: int = 50):
     return {
         "stats": get_audit_stats(),
@@ -220,7 +215,7 @@ async def audit(limit: int = 50):
     }
 
 
-@router.get("/memory-stats")
+@router.get("/memory-stats", dependencies=[Depends(require_admin)])
 async def memory_stats():
     return get_session_stats()
 
@@ -237,16 +232,18 @@ class ClearMemoryRequest(BaseModel):
 
 
 @router.post("/clear-memory")
-async def clear_memory(req: ClearMemoryRequest):
-    clear_session(req.user_id)
-    log.info(f"[CHAT] Memory cleared for user={req.user_id}")
+async def clear_memory(req: ClearMemoryRequest, request: Request):
+    user_id = caller_id(request, req.user_id)
+    clear_session(user_id)
+    log.info(f"[CHAT] Memory cleared for user={user_id}")
     return {"status": "ok", "message": "تم مسح الذاكرة بنجاح"}
 
 
 # ── Export history endpoint ───────────────────────────────────────
 
 @router.get("/export-history")
-async def export_history(user_id: str = "web_user"):
+async def export_history(request: Request, user_id: str = "web_user"):
+    user_id = caller_id(request, user_id)
     session = get_session(user_id)
     if not session.turns:
         raise HTTPException(status_code=404, detail="لا توجد محادثات لتصديرها")
@@ -277,7 +274,7 @@ async def export_history(user_id: str = "web_user"):
 
 # ── Cache endpoints ─────────────────────────────────────────────
 
-@router.get("/cache-stats")
+@router.get("/cache-stats", dependencies=[Depends(require_admin)])
 async def cache_stats():
     """إحصائيات الكاش لكل المستويات."""
     return get_cache_stats()
@@ -287,7 +284,7 @@ class CacheInvalidateRequest(BaseModel):
     tier: str = "all"  # all | sql | dashboard | response
 
 
-@router.post("/cache/invalidate")
+@router.post("/cache/invalidate", dependencies=[Depends(require_admin)])
 async def cache_invalidate(req: CacheInvalidateRequest):
     """إبطال الكاش — يمسح البيانات المخزنة مؤقتاً.
     tier=all      → sql + dashboard + response caches
@@ -322,15 +319,15 @@ async def cache_invalidate(req: CacheInvalidateRequest):
 # ── Company endpoints ────────────────────────────────────────────
 
 @router.get("/companies")
-async def list_companies(user_id: str = "web_user"):
+async def list_companies(request: Request, user_id: str = "web_user"):
     """قائمة الشركات المتاحة للمستخدم."""
-    companies = await get_user_companies(user_id)
+    companies = await get_user_companies(caller_id(request, user_id))
     return {"companies": companies}
 
 
 # ── Schema debug / reload endpoints ─────────────────────────────
 
-@router.get("/schema-debug")
+@router.get("/schema-debug", dependencies=[Depends(require_admin)])
 async def schema_debug(question: str = ""):
     """Debug schema selection for a question.
 
@@ -352,7 +349,7 @@ async def schema_debug(question: str = ""):
     return {**info, "cache_hit": cache_hit}
 
 
-@router.post("/reload-schema")
+@router.post("/reload-schema", dependencies=[Depends(require_admin)])
 async def reload_schema():
     """Force reload of justclick_comments.sql and clear all schema/response caches.
 

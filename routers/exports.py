@@ -3,7 +3,7 @@ routers/exports.py — Data Export API
 Endpoints for exporting query results and reports in PDF, Excel, CSV, JSON formats.
 """
 import logging
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import Response
 from pydantic import BaseModel
 from typing import Optional
@@ -15,6 +15,7 @@ from reporting.executive_reports import (
     generate_executive_report, detect_report_intent,
     format_report_for_chat, REPORT_TYPES, ExecutiveReport,
 )
+from routers.auth import caller_id, ensure_company_access
 from routers.schemas import ScopeValue
 
 log = logging.getLogger("routers.exports")
@@ -42,6 +43,7 @@ class ExecutiveReportRequest(BaseModel):
     report_type: str = "financial_summary"
     company_code: ScopeValue = "1"
     fiscal_year: ScopeValue = "2024"
+    user_id: str = "web_user"
     export_format: str = ""  # empty = chat display; pdf|excel|csv|json = file export
 
 
@@ -91,12 +93,15 @@ async def export_data(req: ExportDataRequest):
 
 
 @router.post("/report")
-async def generate_report(req: ExecutiveReportRequest):
+async def generate_report(req: ExecutiveReportRequest, request: Request):
     """
     Generate an executive report.
     If export_format is empty, returns structured JSON for chat display.
     If export_format is set, returns a downloadable file.
     """
+    user_id = caller_id(request, req.user_id)
+    await ensure_company_access(user_id, req.company_code)
+
     if req.report_type not in REPORT_TYPES:
         raise HTTPException(
             status_code=400,

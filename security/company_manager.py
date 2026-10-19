@@ -20,6 +20,7 @@ Tables without COMPANY_CODE (shared/config):
   INV_CATEGORIES, INV_EFFECTS, INV_EFFECTS_RULES, PRICE_LIST,
   SAL_PURCH_TRANS_TYPE, STORE_TRANS_TYPE, INST
 """
+import os
 import re
 import logging
 from typing import Optional
@@ -97,27 +98,63 @@ def inject_company_filter(
 # User Company Access Validation
 # ══════════════════════════════════════════════════════════════════
 
-_COMPANY_ACCESS: dict[str, list[str]] = {}
+_COMPANY_ACCESS: dict[str, list[str]] = {}     # explicit grants: user_id -> company codes ("*" = all)
+
+
+def grant_company_access(user_id: str, companies: list[str]) -> None:
+    """Allow `user_id` to work with exactly these companies (replaces earlier grants)."""
+    _COMPANY_ACCESS[user_id] = [str(c).strip() for c in companies if str(c).strip()]
+
+
+def _split_codes(value) -> set[str]:
+    return {c.strip() for c in str(value or "").split(",") if c.strip()}
+
+
+def allowed_companies(user_id: str) -> Optional[set[str]]:
+    """Companies this user may use, or None when nothing is known about the user.
+
+    Sources, strongest first:
+      1. grant_company_access() / _COMPANY_ACCESS
+      2. the user's role assignment (JWT claim ``company`` or AI_USER_ROLES.COMPANY_CODE;
+         may be a comma-separated list or ``*``)
+    """
+    if user_id in _COMPANY_ACCESS:
+        return set(_COMPANY_ACCESS[user_id])
+    from security import rbac
+    assignment = rbac.get_assignment(user_id)
+    if assignment and assignment.get("company_code"):
+        return _split_codes(assignment["company_code"])
+    return None
 
 
 async def validate_company_access(user_id: str, company_code: str) -> bool:
-    """
-    Verify user has access to the specified company.
-    Currently: True always (dev mode).
-    Production: reads from ACC_USERS table.
+    """May `user_id` work with `company_code`?
+
+    * Known user (explicit grant or role assignment): only the companies on record.
+    * Unknown user, AUTH_MODE=jwt: denied — a verified identity must carry a company.
+    * Unknown user, AUTH_MODE=api_key: limited to ALLOWED_COMPANIES when that is set,
+      otherwise allowed (single-tenant / development; the shared API key is the gate).
     """
     if not company_code:
         return True
+    code = str(company_code).strip()
 
-    # Dev mode — allow all
-    if user_id not in _COMPANY_ACCESS:
-        return True
+    allowed = allowed_companies(user_id)
+    if allowed is None:
+        from security import rbac
+        if rbac.auth_mode() == "jwt":
+            log.warning("[COMPANY] denied: user=%r has no company assignment", user_id)
+            return False
+        default = _split_codes(os.getenv("ALLOWED_COMPANIES", ""))
+        if not default:
+            return True
+        allowed = default
 
-    return company_code in _COMPANY_ACCESS.get(user_id, [])
+    return "*" in allowed or code in allowed
 
 
 async def get_user_companies(user_id: str) -> list[dict]:
-    """Return list of companies available to the user."""
+    """Return the companies available to the user (never more than they may access)."""
     try:
         from infra.db import execute_read_query as execute_query
         data = await execute_query(
@@ -125,7 +162,12 @@ async def get_user_companies(user_id: str) -> list[dict]:
             "FROM COMPANIES ORDER BY COMPANY_CODE "
             "FETCH FIRST 50 ROWS ONLY"
         )
-        return data
     except Exception as e:
         log.warning(f"[COMPANY] Could not load companies: {e}")
         return []
+    visible = []
+    for row in data:
+        code = str(row.get("COMPANY_CODE", row.get("company_code", "")))
+        if await validate_company_access(user_id, code):
+            visible.append(row)
+    return visible

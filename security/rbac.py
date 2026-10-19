@@ -135,6 +135,19 @@ def assign_role(user_id: str, role: str, company_code: str = "1",
     log.info(f"[RBAC] Assigned role={role} to user={user_id}")
 
 
+def auth_mode() -> str:
+    """Current AUTH_MODE (api_key | jwt | oauth2)."""
+    return _AUTH_MODE
+
+
+def get_assignment(user_id: str) -> Optional[dict]:
+    """The explicit role assignment of a user ({role, company_code, branches}) or None.
+
+    Unknown users have no assignment: they fall back to the viewer role.
+    """
+    return _user_roles.get(user_id)
+
+
 def get_user_permissions(user_id: str) -> UserRole:
     """Get the effective permissions for a user."""
     user_data = _user_roles.get(user_id)
@@ -384,6 +397,17 @@ def load_roles_from_db():
         log.debug(f"[RBAC] DB role loading skipped: {e}")
 
 
+def _rls_is_strict(user_id: str) -> bool:
+    """Should a restricted role with no branches be locked out for this user?
+
+    Yes when the identity is trustworthy (JWT mode, or the user has an explicit
+    assignment) or when RLS_STRICT=1 forces it for everyone including unknown users.
+    """
+    if os.getenv("RLS_STRICT", "").strip().lower() in ("1", "true", "yes"):
+        return True
+    return auth_mode() == "jwt" or user_id in _user_roles
+
+
 def inject_row_level_security(
     sql: str,
     user_id: str,
@@ -396,6 +420,8 @@ def inject_row_level_security(
         rows = await execute_read_query(sql, {**query_params, **rls})
 
     Returns (original_sql, {}) unchanged when no branch restriction applies.
+    A restricted role with no assigned branch gets ``1 = 0`` (no rows) instead of
+    unrestricted access — see _rls_is_strict for the one legacy exception.
 
     Fixes vs the old regex-based implementation:
 
@@ -439,8 +465,15 @@ def inject_row_level_security(
     perms    = get_user_permissions(user_id)
     branches = perms.allowed_branches
 
-    # No branch restriction at all — pass through unchanged
-    if not branches or branches == ["*"]:
+    # Unrestricted role (admin, manager, ...) — pass through unchanged
+    if branches == ["*"]:
+        return sql, {}
+
+    # A restricted role with NO branch assigned must see nothing, not everything.
+    # Anonymous dev users (unknown id, AUTH_MODE=api_key) keep the legacy open
+    # behaviour unless RLS_STRICT=1, because their identity cannot be verified anyway.
+    deny_all = not branches
+    if deny_all and not _rls_is_strict(user_id):
         return sql, {}
 
     # Only inject when the outer query actually references a branch-aware table.
@@ -463,7 +496,7 @@ def inject_row_level_security(
         params[key] = str(branch)
         placeholders.append(f":{key}")
 
-    condition = f"BRANCH_ID IN ({', '.join(placeholders)})"
+    condition = "1 = 0" if deny_all else f"BRANCH_ID IN ({', '.join(placeholders)})"
 
     new_sql = _inject_at_correct_position(sql, [condition])
 

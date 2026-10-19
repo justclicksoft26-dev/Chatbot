@@ -122,14 +122,6 @@ def test_rls_applies_to_every_union_branch():
     assert params == {"rls_branch_0": "3"}
 
 
-@pytest.mark.xfail(strict=True, reason="DESIGN DECISION: a branch-restricted role with no branches "
-                                       "assigned (and every unknown user = viewer) is currently unrestricted")
-def test_rls_fails_closed_when_no_branch_is_assigned():
-    rbac.assign_role("s2", "sales", branches=[])
-    sql, _ = rbac.inject_row_level_security("SELECT * FROM MAIN_INV", "s2")
-    assert sql != "SELECT * FROM MAIN_INV"
-
-
 # ── JWT ────────────────────────────────────────────────────────────────
 jwt = pytest.importorskip("jwt")
 SECRET = "unit-test-secret-0123456789abcdef0123456789"

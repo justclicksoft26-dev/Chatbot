@@ -7,7 +7,7 @@ import logging
 import asyncio
 
 from pathlib import Path
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -17,6 +17,7 @@ from dotenv import load_dotenv
 from routers import chat, widget, upload, learning as learning_router, proactive as proactive_router
 from routers import actions as actions_router, exports as exports_router
 from routers import stream as stream_router
+from routers.auth import require_admin
 from nlu.schema_loader import init_schema_context
 from infra.cache import get_all_stats as get_cache_stats, invalidate_all as invalidate_cache, cleanup_all_expired
 
@@ -367,7 +368,7 @@ async def health_detail(request: Request):
     }
 
 
-@app.get("/observability/traces")
+@app.get("/observability/traces", dependencies=[Depends(require_admin)])
 async def get_traces(limit: int = 50):
     """Recent request traces for monitoring."""
     from infra.observability import get_recent_traces, get_performance_summary
@@ -377,7 +378,7 @@ async def get_traces(limit: int = 50):
     }
 
 
-@app.get("/observability/errors")
+@app.get("/observability/errors", dependencies=[Depends(require_admin)])
 async def get_errors(limit: int = 20):
     """Recent error traces."""
     from infra.observability import get_error_traces

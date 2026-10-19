@@ -16,13 +16,14 @@ import time
 import asyncio
 import logging
 import traceback
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, field_validator
 from typing import List, Optional
 
 from pipeline import process_question, PipelineResult
 from infra.observability import new_trace, RequestTrace
+from routers.auth import caller_id, ensure_company_access
 from routers.schemas import ScopeValue
 
 log = logging.getLogger("stream")
@@ -54,13 +55,16 @@ def _sse_event(event: str, data: dict) -> str:
 
 
 @router.post("/stream", response_class=StreamingResponse)
-async def chat_stream(req: StreamRequest):
+async def chat_stream(req: StreamRequest, request: Request):
     """
     SSE streaming endpoint.
     Sends pipeline stages in real-time, then streams the response.
     """
+    user_id = caller_id(request, req.user_id)         # before streaming starts: 401 stays a 401
+    await ensure_company_access(user_id, req.company_code)
+
     async def event_generator():
-        trace = new_trace(req.user_id, req.question)
+        trace = new_trace(user_id, req.question)
 
         try:
             # Stage 1: Understanding
@@ -93,7 +97,7 @@ async def chat_stream(req: StreamRequest):
 
             result = await process_question(
                 question=req.question,
-                user_id=req.user_id,
+                user_id=user_id,
                 company_code=req.company_code,
                 fiscal_year=req.fiscal_year,
                 history=history,

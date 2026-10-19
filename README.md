@@ -38,6 +38,7 @@ python -m pytest -m live         # اختبار الأسئلة الذهبية ع
 | الملف | ما يغطيه |
 |---|---|
 | `test_sql_safety`, `test_sql_ast` | حجب DML وكل الحقن، حد الصفوف، `WITH`، الـ literals، كشف Prompt Injection |
+| `test_access_control` | صلاحية الشركات، فشل عزل الفروع مغلقاً، خصوصية الإجراءات، مسارات الإدارة، الهوية المتحقَّق منها |
 | `test_query_policy`, `test_rbac` | عزل الشركات والفروع (أقواس الـ `OR`، `UNION`، قيم خبيثة)، الأدوار، JWT |
 | `test_erp_actions` | كشف الإجراءات، التحقق، دورة التنفيذ والتراجع، الحفظ بين الـ workers |
 | `test_api` | الـ middleware (مفتاح API، rate limit، headers)، `/chat`، `/actions` |
@@ -127,20 +128,23 @@ python scripts/mine_apex_export.py "f103.sql" inventory.json --tables MAIN_INV,C
 ## الأمان
 
 - **SQL:** `SELECT`/`WITH` فقط، حجب DML/DDL والحزم الخطرة، حد 500 صف، قائمة جداول مسموحة تُشتق من التعليقات.
-- **العزل:** `COMPANY_CODE` و`FISCAL_YEAR` يُضافان تلقائياً من `query_policy` (القيم تُتحقَّق، والشروط الأصلية تُحاط بأقواس)،
-  وفلتر الفروع بـ bind variables. حقول `company_code/fiscal_year/branch_id` في الـ API تقبل رموزاً قصيرة فقط.
+- **عزل الشركات:** `COMPANY_CODE` و`FISCAL_YEAR` يُضافان تلقائياً من `query_policy` (القيم تُتحقَّق، والشروط الأصلية تُحاط بأقواس).
+  وكل نقطة دخول تأخذ `company_code` (chat, stream, upload, widget, exports, actions, workflow) تتحقق أولاً أن المستخدم مسموح له بالشركة.
+- **صلاحية الشركات:** من تعيين المستخدم (`company` في الـ JWT أو `AI_USER_ROLES`، وتقبل `1,2` أو `*`)،
+  أو من `grant_company_access()`، أو من `ALLOWED_COMPANIES` للمستخدمين غير المعروفين. في وضع `jwt` المستخدم بدون شركة مرفوض.
+- **عزل الفروع:** فلتر `BRANCH_ID` بـ bind variables. الدور المقيَّد بفروع ولم تُحدَّد له فروع يرى **صفر صفوف** (`1 = 0`)،
+  ويُطبَّق ذلك على كل مستخدم له تعيين صريح أو في وضع `jwt`، وعلى الجميع مع `RLS_STRICT=1`.
 - **الإجراءات الكتابية:** مغلقة افتراضياً (`ACTIONS_ENABLED=0`)، لأدوار `admin/manager` فقط، بنفس البوابة في الشات وفي `/actions`،
-  وتتطلب تأكيداً من صاحب الطلب، مع سجل تدقيق وتراجع.
+  وتتطلب تأكيداً من صاحب الطلب. كل مستخدم يرى إجراءاته فقط (`scope=all` للمسؤول)، والإحصائيات للمسؤول.
+- **مسارات الإدارة** (`/chat/provider`، `/chat/reload-schema`، `/chat/cache/*`، `/chat/schema-*`، `/chat/audit`، `/chat/usage`،
+  `/observability/*`، `/chat/alerts/scan`، وعمليات التنظيف في `/learning`): **مغلقة افتراضياً**.
+  تُفتح بـ `X-Admin-Key` (قيمته `ADMIN_API_KEY`) أو بـ JWT دوره `admin`. `ALLOW_INSECURE_ADMIN=1` للتطوير المحلي فقط.
+- **الهوية:** في وضع `jwt` المستخدم المتحقَّق منه يُقدَّم على أي `user_id` في الطلب، في كل نقاط الدخول.
 - **الدخول:** `X-API-Key`، أو JWT (`AUTH_MODE=jwt`، خوارزمية HS256 فقط، و`exp`/`sub` إلزاميان).
 - **حدود الطلبات:** `/chat` و`/api/chat` و`/learning` لكل IP.
 
-### نقاط مفتوحة تحتاج قرار
-
-- التحقق من صلاحية المستخدم على الشركة (`validate_company_access`) يسمح للجميع حالياً.
-- الدور المقيَّد بفروع ولم تُحدَّد له فروع (وأي مستخدم غير معروف) يرى كل الفروع — اختبار `xfail` يوثّق ذلك.
-- `GET /actions/pending` بدون `user_id` يعرض إجراءات الجميع.
-- مسارات الإدارة (`/chat/provider`، `/chat/reload-schema`، `/observability/*`، `/learning/*/cleanup`)
-  بلا حماية إذا لم يُضبط `API_KEY`.
+> في وضع `api_key` لا يمكن التحقق من هوية المستخدم (الـ `user_id` يأتي من الطلب)، فعزل المستخدمين والشركات فيه
+> يحمي من الأخطاء لا من الهجوم. للعزل الحقيقي استخدم `AUTH_MODE=jwt`.
 
 ---
 

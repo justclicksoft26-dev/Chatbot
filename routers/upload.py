@@ -4,7 +4,7 @@ routers/upload.py — File Upload & Image Analysis Endpoint
 """
 import logging
 import traceback
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Request
 from typing import Optional
 
 from llm.image_analyzer import (
@@ -14,6 +14,7 @@ from llm.image_analyzer import (
     analyze_and_query,
     MAX_FILE_SIZE,
 )
+from routers.auth import caller_id, ensure_company_access
 from routers.schemas import ScopeValue
 
 log = logging.getLogger("upload")
@@ -23,6 +24,7 @@ router = APIRouter(prefix="/chat", tags=["upload"])
 
 @router.post("/upload")
 async def upload_and_analyze(
+    request: Request,
     file: UploadFile = File(...),
     question: str = Form(""),
     user_id: str = Form("web_user"),
@@ -48,6 +50,9 @@ async def upload_and_analyze(
     - suggested_query: سؤال مقترح
     - pipeline_answer: إجابة من DB (لو analyze_only=False وفيه سؤال)
     """
+    user_id = caller_id(request, user_id)
+    await ensure_company_access(user_id, company_code)
+
     # ── Validate file ──
     if not file.filename:
         raise HTTPException(status_code=400, detail="لم يتم رفع ملف")

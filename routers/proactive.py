@@ -3,10 +3,11 @@ routers/proactive.py — Proactive Intelligence API Endpoints
 Exposes alerts, health scores, briefings, and manual scan triggers.
 """
 import logging
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional
 
+from routers.auth import require_admin
 from proactive.alerts import alert_store
 from proactive.monitor import run_all_checks
 from proactive.health import compute_health_scores
@@ -64,7 +65,7 @@ async def acknowledge_alerts(req: AcknowledgeRequest):
         return {"status": "ok", "acknowledged": "all"}
 
 
-@router.post("/alerts/scan")
+@router.post("/alerts/scan", dependencies=[Depends(require_admin)])
 async def trigger_scan():
     """Manually trigger a monitoring scan (for testing/admin)."""
     try:

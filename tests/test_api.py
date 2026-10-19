@@ -280,9 +280,9 @@ def test_actions_need_a_token_in_jwt_mode(client, actions_on, jwt_mode):
 def test_read_endpoints(client, actions_on, fake_db):
     action_id = plan_via_api(client).json()["action_id"]
     assert client.get("/actions/pending?user_id=boss").json()["count"] == 1
-    assert client.get(f"/actions/{action_id}").json()["id"] == action_id
-    assert client.get("/actions/stats").json()["total_actions"] == 1
-    assert client.get("/actions/nope").status_code == 404
+    assert client.get(f"/actions/{action_id}?user_id=boss").json()["id"] == action_id
+    assert client.get("/actions/stats?user_id=boss").json()["total_actions"] == 1
+    assert client.get("/actions/nope?user_id=boss").status_code == 404
 
 
 def test_scope_validation_on_actions_endpoints(client, actions_on):
