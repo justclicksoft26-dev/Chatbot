@@ -52,7 +52,7 @@ def get_mime_type(filename: str) -> str:
 # Gemini Vision Analysis
 # ══════════════════════════════════════════════════════════════════
 
-_ANALYSIS_PROMPT = """أنت محلل مستندات ذكي لنظام CRM اسمه ECO SAFE.
+_ANALYSIS_PROMPT = """أنت محلل مستندات ذكي لنظام {brand}.
 
 مهمتك: تحليل الصورة المرفقة واستخراج كل البيانات المفيدة منها.
 
@@ -78,6 +78,22 @@ _ANALYSIS_PROMPT = """أنت محلل مستندات ذكي لنظام CRM اس�
 """
 
 
+def analysis_prompt() -> str:
+    import profiles
+    # the prompt contains literal JSON braces, so only the brand marker is substituted
+    return _ANALYSIS_PROMPT.replace("{brand}", profiles.active().BRAND)
+
+
+_MAGIC = (b"\xff\xd8\xff", b"\x89PNG\r\n\x1a\n", b"GIF87a", b"GIF89a", b"BM")
+
+
+def looks_like_image(content: bytes) -> bool:
+    """The extension is client-controlled, so also check the file's own signature."""
+    if content[:4] == b"RIFF" and content[8:12] == b"WEBP":
+        return True
+    return content.startswith(_MAGIC)
+
+
 async def analyze_image(
     image_bytes: bytes,
     mime_type: str = "image/jpeg",
@@ -100,10 +116,9 @@ async def analyze_image(
             "data": image_bytes,
         }
 
+        prompt = analysis_prompt()
         if question:
-            prompt = f"{_ANALYSIS_PROMPT}\n\nسؤال المستخدم: {question}"
-        else:
-            prompt = _ANALYSIS_PROMPT
+            prompt = f"{prompt}\n\nسؤال المستخدم: {question}"
 
         response = model.generate_content(
             [prompt, image_part],

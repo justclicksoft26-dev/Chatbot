@@ -9,6 +9,7 @@ from typing import Optional
 
 from llm.image_analyzer import (
     validate_image,
+    looks_like_image,
     get_mime_type,
     analyze_image,
     analyze_and_query,
@@ -65,6 +66,9 @@ async def upload_and_analyze(
     error = validate_image(file.filename, file_size)
     if error:
         raise HTTPException(status_code=400, detail=error)
+
+    if not looks_like_image(content):
+        raise HTTPException(status_code=400, detail="محتوى الملف ليس صورة صالحة")
 
     mime_type = get_mime_type(file.filename)
     log.info(f"[UPLOAD] file={file.filename} size={file_size} type={mime_type} "

@@ -4,6 +4,7 @@ Generates PDF, Excel, CSV, and JSON exports from query results.
 Detects export intent from natural language.
 """
 import csv
+import html as _html
 import io
 import json
 import re
@@ -120,10 +121,10 @@ def export_csv(req: ExportRequest) -> tuple[bytes, str]:
     output.write("\n")
 
     # Data rows
-    writer = csv.DictWriter(output, fieldnames=list(req.data[0].keys()))
+    writer = csv.DictWriter(output, fieldnames=_columns(req.data))
     writer.writeheader()
     for row in req.data:
-        writer.writerow(row)
+        writer.writerow({k: _safe_cell(v) for k, v in row.items()})
 
     content = output.getvalue().encode("utf-8")
     return content, _filename(req.title, "csv")
@@ -148,7 +149,7 @@ def export_excel(req: ExportRequest) -> tuple[bytes, str]:
 
     wb = openpyxl.Workbook()
     ws = wb.active
-    ws.title = (req.title or "تقرير")[:31]
+    ws.title = re.sub(r'[\\/*?:\[\]]', ' ', _safe_cell(req.title or "تقرير"))[:31]
     ws.sheet_view.rightToLeft = True
 
     # Styles
@@ -169,7 +170,7 @@ def export_excel(req: ExportRequest) -> tuple[bytes, str]:
     # Title
     if req.title:
         ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=6)
-        cell = ws.cell(row=row_num, column=1, value=req.title)
+        cell = ws.cell(row=row_num, column=1, value=_safe_cell(req.title))
         cell.font = title_font
         cell.alignment = Alignment(horizontal="right")
         row_num += 1
@@ -180,7 +181,7 @@ def export_excel(req: ExportRequest) -> tuple[bytes, str]:
 
     if req.filters:
         filters_str = " | ".join(f"{k}: {v}" for k, v in req.filters.items())
-        ws.cell(row=row_num, column=1, value=f"الفلاتر: {filters_str}").font = meta_font
+        ws.cell(row=row_num, column=1, value=_safe_cell(f"الفلاتر: {filters_str}")).font = meta_font
         row_num += 1
 
     # KPIs
@@ -189,24 +190,24 @@ def export_excel(req: ExportRequest) -> tuple[bytes, str]:
         for kpi in req.kpis:
             label = kpi.get("label", "")
             value = kpi.get("value", "")
-            ws.cell(row=row_num, column=1, value=label).font = Font(bold=True, size=11)
-            ws.cell(row=row_num, column=2, value=value).font = data_font
+            ws.cell(row=row_num, column=1, value=_safe_cell(label)).font = Font(bold=True, size=11)
+            ws.cell(row=row_num, column=2, value=_safe_cell(value)).font = data_font
             row_num += 1
 
     # Summary
     if req.summary:
         row_num += 1
-        ws.cell(row=row_num, column=1, value=req.summary).font = meta_font
+        ws.cell(row=row_num, column=1, value=_safe_cell(req.summary)).font = meta_font
         row_num += 1
 
     # Data table
     if req.data:
         row_num += 1
-        headers = list(req.data[0].keys())
+        headers = _columns(req.data)
 
         # Header row
         for col, header in enumerate(headers, 1):
-            cell = ws.cell(row=row_num, column=col, value=header)
+            cell = ws.cell(row=row_num, column=col, value=_safe_cell(str(header)))
             cell.font = header_font
             cell.fill = header_fill
             cell.alignment = Alignment(horizontal="center")
@@ -217,7 +218,9 @@ def export_excel(req: ExportRequest) -> tuple[bytes, str]:
         for data_row in req.data:
             for col, header in enumerate(headers, 1):
                 val = data_row.get(header, "")
-                cell = ws.cell(row=row_num, column=col, value=val)
+                if isinstance(val, (list, dict, set, tuple)):
+                    val = json.dumps(val, ensure_ascii=False, default=str)
+                cell = ws.cell(row=row_num, column=col, value=_safe_cell(val))
                 cell.font = data_font
                 cell.border = border
                 # Right-align numbers
@@ -270,14 +273,14 @@ def export_pdf_html(req: ExportRequest) -> tuple[str, str]:
     brand = profiles.active().BRAND
     rows_html = ""
     if req.data:
-        headers = list(req.data[0].keys())
-        header_cells = "".join(f"<th>{h}</th>" for h in headers)
+        headers = _columns(req.data)
+        header_cells = "".join(f"<th>{_esc(h)}</th>" for h in headers)
         rows = []
         for row in req.data[:200]:  # Limit for PDF readability
             cells = "".join(
-                f"<td class='num'>{row.get(h, '')}</td>"
+                f"<td class='num'>{_esc(row.get(h, ''))}</td>"
                 if isinstance(row.get(h), (int, float))
-                else f"<td>{row.get(h, '')}</td>"
+                else f"<td>{_esc(row.get(h, ''))}</td>"
                 for h in headers
             )
             rows.append(f"<tr>{cells}</tr>")
@@ -294,24 +297,24 @@ def export_pdf_html(req: ExportRequest) -> tuple[str, str]:
         for kpi in req.kpis:
             cards.append(f"""
                 <div class="kpi">
-                    <div class="kpi-value">{kpi.get('value', '')}</div>
-                    <div class="kpi-label">{kpi.get('label', '')}</div>
+                    <div class="kpi-value">{_esc(kpi.get('value', ''))}</div>
+                    <div class="kpi-label">{_esc(kpi.get('label', ''))}</div>
                 </div>
             """)
         kpis_html = f"<div class='kpis'>{''.join(cards)}</div>"
 
     filters_html = ""
     if req.filters:
-        items = " | ".join(f"{k}: {v}" for k, v in req.filters.items())
+        items = " | ".join(f"{_esc(k)}: {_esc(v)}" for k, v in req.filters.items())
         filters_html = f"<p class='filters'>الفلاتر: {items}</p>"
 
-    summary_html = f"<p class='summary'>{req.summary}</p>" if req.summary else ""
+    summary_html = f"<p class='summary'>{_esc(req.summary)}</p>" if req.summary else ""
 
     html = f"""<!DOCTYPE html>
 <html dir="rtl" lang="ar">
 <head>
 <meta charset="utf-8">
-<title>{req.title or 'تقرير'}</title>
+<title>{_esc(req.title or 'تقرير')}</title>
 <style>
 @page {{ margin: 1.5cm; size: A4 landscape; }}
 body {{ font-family: 'Segoe UI', 'SF Arabic', system-ui; color: #1a1a2e;
@@ -339,13 +342,13 @@ tr:nth-child(even) {{ background: #fafafa; }}
 </style>
 </head>
 <body>
-<h1>{req.title or 'تقرير'}</h1>
+<h1>{_esc(req.title or 'تقرير')}</h1>
 <div class="meta">تاريخ التصدير: {_now_str()} | عدد السجلات: {len(req.data)}</div>
 {filters_html}
 {kpis_html}
 {summary_html}
 {rows_html}
-<div class="footer">{brand} Copilot &mdash; تم إنشاء هذا التقرير تلقائياً</div>
+<div class="footer">{_esc(brand)} Copilot &mdash; تم إنشاء هذا التقرير تلقائياً</div>
 </body>
 </html>"""
 
@@ -385,6 +388,32 @@ def generate_export(req: ExportRequest) -> tuple:
 # ══════════════════════════════════════════════════════════════════
 # Helpers
 # ══════════════════════════════════════════════════════════════════
+
+_FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
+_ILLEGAL_XML = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+
+
+def _safe_cell(value):
+    """Keep spreadsheet apps from running a cell as a formula, and drop characters Excel rejects."""
+    if isinstance(value, str):
+        value = _ILLEGAL_XML.sub("", value)
+        if value.startswith(_FORMULA_START):
+            return "'" + value
+    return value
+
+
+def _esc(value) -> str:
+    return _html.escape(str(value), quote=True)
+
+
+def _columns(rows: list[dict]) -> list:
+    """Union of keys in first-seen order, so rows with extra keys neither crash nor lose data."""
+    seen: dict = {}
+    for row in rows:
+        for key in row:
+            seen.setdefault(key, None)
+    return list(seen)
+
 
 def _now_str() -> str:
     import datetime
