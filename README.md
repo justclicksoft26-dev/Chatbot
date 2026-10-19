@@ -117,7 +117,7 @@ SQL ─► sql_safety (SELECT فقط) ─► query_policy (الشركة/السن
 ## إضافة profile لنظام جديد
 
 1. أنشئ `profiles/<name>/` بنفس ملفات `justclick` (`__init__.py`, `comments.sql`, `intents.py`,
-   `templates.py`, `prompts.py`, `suggestions.py`).
+   `templates.py`, `prompts.py`, `suggestions.py`, `seeds.py` للمعرفة الأولية، `ontology.py` لعلاقات الجداول).
 2. اكتب `comments.sql` (`COMMENT ON TABLE/COLUMN`) — هذا أهم ملف: أي جدول بلا تعليق لا يُسمح به.
 3. شغّل `APP_PROFILE=<name>`؛ و`python -m pytest tests/test_profiles.py` يتحقق من اكتمال الـ profile
    وأن كل قالب آمن (أضف اسم الـ profile لقائمة `PROFILES` في الاختبار).

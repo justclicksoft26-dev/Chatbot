@@ -9,3 +9,4 @@ COMMENTS_FILE = Path(__file__).parent / "comments.sql"
 # caller's company, year and branches before it runs (security/query_policy, security/rbac).
 TENANT_FILTERING = True
 from .seeds import SEED_KNOWLEDGE  # noqa: E402,F401
+from . import ontology as ONTOLOGY  # noqa: E402,F401
