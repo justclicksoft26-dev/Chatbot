@@ -885,7 +885,9 @@ async def process_question(
         # Inject proactive operational summary into greeting
         try:
             from proactive.alerts import alert_store as _pstore
-            unack = _pstore.get_unacknowledged()
+            from proactive.scoped import monitor_company
+            # alerts describe the monitored company only
+            unack = _pstore.get_unacknowledged() if str(company_code) == monitor_company() else []
             if unack:
                 critical = [a for a in unack if a.severity == "critical"]
                 warnings = [a for a in unack if a.severity == "warning"]

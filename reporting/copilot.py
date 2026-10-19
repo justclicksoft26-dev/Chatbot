@@ -479,8 +479,8 @@ def auto_generate_chart(
     bg_colors = (colors * ((len(labels) // len(colors)) + 1))[:len(labels)]
 
     # Translate column label
-    labels = _sugg().COLUMN_LABELS
-    dataset_label = labels.get(val_col, labels.get(val_col.upper(), val_col))
+    column_labels = _sugg().COLUMN_LABELS
+    dataset_label = column_labels.get(val_col, column_labels.get(str(val_col).upper(), val_col))
 
     chart = {
         "type": chart_type,

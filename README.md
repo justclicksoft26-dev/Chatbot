@@ -147,6 +147,8 @@ python scripts/mine_apex_export.py "f103.sql" inventory.json --tables MAIN_INV,C
 - **مسارات الإدارة** (`/chat/provider`، `/chat/reload-schema`، `/chat/cache/*`، `/chat/schema-*`، `/chat/audit`، `/chat/usage`،
   `/observability/*`، `/chat/alerts/scan`، وعمليات التنظيف في `/learning`): **مغلقة افتراضياً**.
   تُفتح بـ `X-Admin-Key` (قيمته `ADMIN_API_KEY`) أو بـ JWT دوره `admin`. `ALLOW_INSECURE_ADMIN=1` للتطوير المحلي فقط.
+- **التنبيهات والمؤشرات الاستباقية** (`/chat/alerts*`، `/chat/health-scores`، `/chat/briefing`): تعمل على شركة واحدة (`MONITOR_COMPANY_CODE`، والسنة `MONITOR_FISCAL_YEAR`)
+  وكل استعلاماتها تمر بنفس الفلترة، وقراءتها تتطلب صلاحية على تلك الشركة.
 - **الهوية:** في وضع `jwt` المستخدم المتحقَّق منه يُقدَّم على أي `user_id` في الطلب، في كل نقاط الدخول.
 - **الدخول:** `X-API-Key`، أو JWT (`AUTH_MODE=jwt`، خوارزمية HS256 فقط، و`exp`/`sub` إلزاميان).
 - **حدود الطلبات:** `/chat` و`/api/chat` و`/learning` لكل IP.
