@@ -62,3 +62,14 @@ def test_requirements_list_what_the_code_imports():
     reqs = (ROOT / "requirements.txt").read_text(encoding="utf-8").lower()
     for needed in ("fastapi", "oracledb", "openpyxl", "pyjwt", "groq", "python-multipart"):
         assert needed in reqs, needed
+
+
+def test_db_check_script_collects_every_shipped_query(justclick_profile):
+    """The live checker must see all templates, widgets and report queries, scoped and safe."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("check_sql_against_db", ROOT / "scripts" / "check_sql_against_db.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    queries = module.collect_queries(company_code="9", fiscal_year="2025")
+    assert len(queries) >= 21 + 43 + 30
+    assert all(sql is not None for _, sql, _ in queries), [q[0] for q in queries if q[1] is None]

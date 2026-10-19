@@ -167,6 +167,11 @@ def _extract_entities(question: str) -> dict:
 # Context-need detection
 # ══════════════════════════════════════════════════════════════════
 
+def has_contextual_signal(question: str) -> bool:
+    """Does the wording itself point back at the previous turn ("same", "also", "and what about")?"""
+    return bool(_CONTEXTUAL_SIGNALS.search(question or ""))
+
+
 def _detect_needs_history(question: str, history: list = None) -> bool:
     """
     هل السؤال محتاج context من المحادثة السابقة؟

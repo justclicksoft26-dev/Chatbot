@@ -78,6 +78,8 @@ def inject_company_filter(
     company_code: str = "",
     fiscal_year: str = "",
     question: str = "",
+    allowed_companies: Optional[set] = None,
+    classify: bool = True,
 ) -> str:
     """
     Enterprise Query Policy Engine entry point.
@@ -88,7 +90,7 @@ def inject_company_filter(
     It never blindly injects — it classifies the query first, then decides.
     """
     from security.query_policy import apply_policy
-    return apply_policy(sql, company_code, fiscal_year, question)
+    return apply_policy(sql, company_code, fiscal_year, question, allowed_companies, classify)
 
 
     # Legacy helper functions removed — all logic is now in query_policy.py
@@ -125,6 +127,19 @@ def allowed_companies(user_id: str) -> Optional[set[str]]:
     if assignment and assignment.get("company_code"):
         return _split_codes(assignment["company_code"])
     return None
+
+
+def effective_companies(user_id: str) -> Optional[set[str]]:
+    """The finite set of companies this user is limited to, or None for "no limit".
+
+    None means: a ``*`` grant, or an anonymous dev user with no ALLOWED_COMPANIES configured.
+    """
+    allowed = allowed_companies(user_id)
+    if allowed is None:
+        allowed = _split_codes(os.getenv("ALLOWED_COMPANIES", "")) or None
+    if allowed is None or "*" in allowed:
+        return None
+    return allowed
 
 
 async def validate_company_access(user_id: str, company_code: str) -> bool:

@@ -11,6 +11,8 @@ from dataclasses import dataclass, field
 
 from infra.db import execute_read_query as execute_query
 from llm.llm_client import _call_llm
+from nlu.query_templates import resolve_flags as _resolve_flag_placeholders
+from security.scope import prepare_sql
 
 log = logging.getLogger("executive_reports")
 
@@ -170,195 +172,129 @@ def detect_report_intent(question: str) -> Optional[str]:
 
 
 # ══════════════════════════════════════════════════════════════════
-# Report SQL Queries (real ERP tables)
+# Report SQL Queries (JustClick ERP schema)
 # ══════════════════════════════════════════════════════════════════
+# Conventions (from the schema comments and the APEX application):
+#   * MAIN_INV: INVTYPE 0=بيع 1=شراء · RETURN_FLAG 0=عادية 1=مرتجع (returns are separate invoices)
+#   * coded values are written as {{flag:COLUMN:label}} and resolved from the comments
+#   * company / fiscal year are NOT written here: security.scope adds them for the caller
+#   * PAYED: SAL_PURCH 0=عملاء 1=موردون · DEB_CRD per the PAYED comment
+#     (customer collection = SAL_PURCH 0 + DEB_CRD 1, supplier payment = SAL_PURCH 1 + DEB_CRD 0)
+
+_NET = "DECODE(m.RETURN_FLAG, 0, m.FINALTOTAL, -m.FINALTOTAL)"
+
+_SALES_INV = "INVTYPE = {{flag:INVTYPE:بيع}} AND RETURN_FLAG = {{flag:RETURN_FLAG:عادية}}"
+_RETURN_INV = "INVTYPE = {{flag:INVTYPE:بيع}} AND RETURN_FLAG = {{flag:RETURN_FLAG:مرتجع}}"
+_PURCHASE_INV = "INVTYPE = {{flag:INVTYPE:شراء}} AND RETURN_FLAG = {{flag:RETURN_FLAG:عادية}}"
+
+_COLLECTED = "SELECT NVL(SUM(PAYED_AMOUNT), 0) AS {alias} FROM PAYED WHERE SAL_PURCH = 0 AND DEB_CRD = 1"
+_PAID = "SELECT NVL(SUM(PAYED_AMOUNT), 0) AS {alias} FROM PAYED WHERE SAL_PURCH = 1 AND DEB_CRD = 0"
+
+# Receivable / payable = invoice totals minus what has been settled against them.
+_OUTSTANDING = """
+    SELECT NVL(SUM(m.FINALTOTAL), 0) - NVL(SUM(p.paid), 0) AS OUTSTANDING
+    FROM MAIN_INV m
+    LEFT JOIN (SELECT INV_KEY, SUM(SDAD) AS paid FROM MAIN_INV_PAYED GROUP BY INV_KEY) p
+           ON p.INV_KEY = m.INV_KEY
+    WHERE m.INVTYPE = {{flag:INVTYPE:%s}} AND m.RETURN_FLAG = {{flag:RETURN_FLAG:عادية}}
+"""
 
 _REPORT_QUERIES = {
     "sales_performance": {
-        "total_sales": """
-            SELECT NVL(SUM(FINALTOTAL), 0) AS TOTAL_SALES,
-                   COUNT(*) AS INVOICE_COUNT
-            FROM MAIN_INV
-            WHERE INV_TYPE = 1
-              AND COMPANY_CODE = '{company}'
-              AND FISCAL_YEAR = '{year}'
+        "total_sales": f"""
+            SELECT NVL(SUM(FINALTOTAL), 0) AS TOTAL_SALES, COUNT(*) AS INVOICE_COUNT
+            FROM MAIN_INV WHERE {_SALES_INV}
         """,
-        "sales_by_month": """
-            SELECT TO_CHAR(INVDATE, 'YYYY-MM') AS MONTH,
-                   SUM(FINALTOTAL) AS TOTAL,
-                   COUNT(*) AS CNT
-            FROM MAIN_INV
-            WHERE INV_TYPE = 1
-              AND COMPANY_CODE = '{company}'
-              AND FISCAL_YEAR = '{year}'
+        "sales_by_month": f"""
+            SELECT TO_CHAR(INVDATE, 'YYYY-MM') AS MONTH, SUM(FINALTOTAL) AS TOTAL, COUNT(*) AS CNT
+            FROM MAIN_INV WHERE {_SALES_INV}
             GROUP BY TO_CHAR(INVDATE, 'YYYY-MM')
             ORDER BY MONTH
         """,
-        "top_customers": """
-            SELECT cu.CUST_NAME, SUM(m.FINALTOTAL) AS TOTAL
+        "top_customers": f"""
+            SELECT cu.CUST_NAME, SUM({_NET}) AS TOTAL
             FROM MAIN_INV m
             JOIN CUST cu ON cu.CUSTID = m.CUST_ID AND cu.CUST_TYPE = m.CUST_TYPE
-            WHERE m.INV_TYPE = 1
-              AND m.COMPANY_CODE = '{company}'
-              AND m.FISCAL_YEAR = '{year}'
+            WHERE m.INVTYPE = {{{{flag:INVTYPE:بيع}}}} AND cu.CUST_TYPE = {{{{flag:CUST_TYPE:عميل}}}}
             GROUP BY cu.CUST_NAME
             ORDER BY TOTAL DESC
             FETCH FIRST 10 ROWS ONLY
         """,
         "top_items": """
-            SELECT i.ITEMNAME, SUM(d.QTY) AS TOTAL_QTY, SUM(d.TOTAL) AS TOTAL_VALUE
-            FROM INV_DETAIL d
+            SELECT i.ITEMNAME, SUM(d.QTY) AS TOTAL_QTY,
+                   SUM(NVL(d.PRICE, 0) * NVL(d.QTY, 0)) AS TOTAL_VALUE
+            FROM DETAIL_INV d
             JOIN ITEMS i ON i.ITEMID = d.ITEMID
-            JOIN MAIN_INV m ON m.INVID = d.INVID AND m.INV_TYPE = d.INV_TYPE
-            WHERE m.INV_TYPE = 1
-              AND m.COMPANY_CODE = '{company}'
-              AND m.FISCAL_YEAR = '{year}'
+            JOIN MAIN_INV m ON m.INV_KEY = d.INV_KEY
+            WHERE m.INVTYPE = {{flag:INVTYPE:بيع}} AND m.RETURN_FLAG = {{flag:RETURN_FLAG:عادية}}
             GROUP BY i.ITEMNAME
             ORDER BY TOTAL_VALUE DESC
             FETCH FIRST 10 ROWS ONLY
         """,
-        "returns": """
-            SELECT NVL(SUM(FINALTOTAL), 0) AS TOTAL_RETURNS,
-                   COUNT(*) AS RETURN_COUNT
-            FROM MAIN_INV
-            WHERE INV_TYPE = 3
-              AND COMPANY_CODE = '{company}'
-              AND FISCAL_YEAR = '{year}'
+        "returns": f"""
+            SELECT NVL(SUM(FINALTOTAL), 0) AS TOTAL_RETURNS, COUNT(*) AS RETURN_COUNT
+            FROM MAIN_INV WHERE {_RETURN_INV}
         """,
-        "collections": """
-            SELECT NVL(SUM(AMOUNT), 0) AS TOTAL_COLLECTED
-            FROM PAYED
-            WHERE PAY_TYPE = 1
-              AND COMPANY_CODE = '{company}'
-              AND FISCAL_YEAR = '{year}'
-        """,
+        "collections": _COLLECTED.format(alias="TOTAL_COLLECTED"),
     },
     "financial_summary": {
         "revenue": """
-            SELECT NVL(SUM(FINALTOTAL), 0) AS TOTAL_REVENUE
-            FROM MAIN_INV
-            WHERE INV_TYPE = 1
-              AND COMPANY_CODE = '{company}'
-              AND FISCAL_YEAR = '{year}'
+            SELECT NVL(SUM(DECODE(RETURN_FLAG, 0, FINALTOTAL, -FINALTOTAL)), 0) AS TOTAL_REVENUE
+            FROM MAIN_INV WHERE INVTYPE = {{flag:INVTYPE:بيع}}
         """,
         "expenses": """
-            SELECT NVL(SUM(FINALTOTAL), 0) AS TOTAL_EXPENSES
-            FROM MAIN_INV
-            WHERE INV_TYPE = 2
-              AND COMPANY_CODE = '{company}'
-              AND FISCAL_YEAR = '{year}'
+            SELECT NVL(SUM(DECODE(RETURN_FLAG, 0, FINALTOTAL, -FINALTOTAL)), 0) AS TOTAL_EXPENSES
+            FROM MAIN_INV WHERE INVTYPE = {{flag:INVTYPE:شراء}}
         """,
-        "collections": """
-            SELECT NVL(SUM(AMOUNT), 0) AS TOTAL_COLLECTIONS
-            FROM PAYED
-            WHERE PAY_TYPE = 1
-              AND COMPANY_CODE = '{company}'
-              AND FISCAL_YEAR = '{year}'
-        """,
-        "payments": """
-            SELECT NVL(SUM(AMOUNT), 0) AS TOTAL_PAYMENTS
-            FROM PAYED
-            WHERE PAY_TYPE = 2
-              AND COMPANY_CODE = '{company}'
-              AND FISCAL_YEAR = '{year}'
-        """,
-        "outstanding_receivables": """
-            SELECT NVL(SUM(FINALTOTAL - SDAD), 0) AS OUTSTANDING
-            FROM MAIN_INV
-            WHERE INV_TYPE = 1
-              AND SDAD < FINALTOTAL
-              AND COMPANY_CODE = '{company}'
-              AND FISCAL_YEAR = '{year}'
-        """,
-        "outstanding_payables": """
-            SELECT NVL(SUM(FINALTOTAL - SDAD), 0) AS OUTSTANDING
-            FROM MAIN_INV
-            WHERE INV_TYPE = 2
-              AND SDAD < FINALTOTAL
-              AND COMPANY_CODE = '{company}'
-              AND FISCAL_YEAR = '{year}'
-        """,
+        "collections": _COLLECTED.format(alias="TOTAL_COLLECTIONS"),
+        "payments": _PAID.format(alias="TOTAL_PAYMENTS"),
+        "outstanding_receivables": _OUTSTANDING % "بيع",
+        "outstanding_payables": _OUTSTANDING % "شراء",
     },
     "inventory_status": {
-        "total_items": """
-            SELECT COUNT(*) AS TOTAL_ITEMS
-            FROM ITEMS
-            WHERE COMPANY_CODE = '{company}'
-              AND NVL(ACTIVE, 1) = 1
-        """,
-        "total_stores": """
-            SELECT COUNT(*) AS TOTAL_STORES
-            FROM STORES
-            WHERE COMPANY_CODE = '{company}'
-        """,
+        "total_items": "SELECT COUNT(*) AS TOTAL_ITEMS FROM ITEMS",
+        "total_stores": "SELECT COUNT(*) AS TOTAL_STORES FROM STORE",
+        # Stock is computed by the ERP's own RASEED() function (item, store, ..., to-date, ...).
         "stock_value": """
-            SELECT NVL(SUM(t.QTY * i.SELLPRICE), 0) AS STOCK_VALUE,
-                   SUM(t.QTY) AS TOTAL_QTY
-            FROM TRANSACTION_TOT t
-            JOIN ITEMS i ON i.ITEMID = t.ITEMID
-            WHERE t.COMPANY_CODE = '{company}'
-              AND t.QTY > 0
+            SELECT NVL(SUM(QTY * SELLPRICE), 0) AS STOCK_VALUE, NVL(SUM(QTY), 0) AS TOTAL_QTY
+            FROM (SELECT i.SELLPRICE, RASEED(i.ITEMID, NULL, NULL, NULL, NULL) AS QTY FROM ITEMS i)
+            WHERE QTY > 0
         """,
         "low_stock": """
             SELECT COUNT(*) AS LOW_STOCK_COUNT
-            FROM TRANSACTION_TOT t
-            JOIN ITEMS i ON i.ITEMID = t.ITEMID
-            WHERE t.COMPANY_CODE = '{company}'
-              AND t.QTY > 0
-              AND t.QTY <= NVL(i.ITEMS_LIMIT, 5)
+            FROM (SELECT i.MIN_LIMIT, RASEED(i.ITEMID, NULL, NULL, NULL, NULL) AS QTY FROM ITEMS i)
+            WHERE QTY > 0 AND QTY <= NVL(MIN_LIMIT, 0)
         """,
         "zero_stock": """
             SELECT COUNT(*) AS ZERO_STOCK_COUNT
-            FROM TRANSACTION_TOT t
-            WHERE t.COMPANY_CODE = '{company}'
-              AND t.QTY = 0
+            FROM (SELECT RASEED(i.ITEMID, NULL, NULL, NULL, NULL) AS QTY FROM ITEMS i)
+            WHERE QTY = 0
         """,
     },
     "customer_analysis": {
-        "total_customers": """
-            SELECT COUNT(*) AS TOTAL_CUSTOMERS
-            FROM CUST
-            WHERE CUST_TYPE = 0
-              AND COMPANY_CODE = '{company}'
-        """,
-        "total_suppliers": """
-            SELECT COUNT(*) AS TOTAL_SUPPLIERS
-            FROM CUST
-            WHERE CUST_TYPE = 1
-              AND COMPANY_CODE = '{company}'
-        """,
+        "total_customers": "SELECT COUNT(*) AS TOTAL_CUSTOMERS FROM CUST WHERE CUST_TYPE = {{flag:CUST_TYPE:عميل}}",
+        "total_suppliers": "SELECT COUNT(*) AS TOTAL_SUPPLIERS FROM CUST WHERE CUST_TYPE = {{flag:CUST_TYPE:مورد}}",
         "top_customers_debt": """
-            SELECT cu.CUST_NAME, SUM(m.FINALTOTAL - m.SDAD) AS DEBT
+            SELECT cu.CUST_NAME, SUM(m.FINALTOTAL) - NVL(SUM(p.paid), 0) AS DEBT
             FROM MAIN_INV m
             JOIN CUST cu ON cu.CUSTID = m.CUST_ID AND cu.CUST_TYPE = m.CUST_TYPE
-            WHERE m.INV_TYPE = 1
-              AND m.SDAD < m.FINALTOTAL
-              AND m.COMPANY_CODE = '{company}'
+            LEFT JOIN (SELECT INV_KEY, SUM(SDAD) AS paid FROM MAIN_INV_PAYED GROUP BY INV_KEY) p
+                   ON p.INV_KEY = m.INV_KEY
+            WHERE m.INVTYPE = {{flag:INVTYPE:بيع}} AND m.RETURN_FLAG = {{flag:RETURN_FLAG:عادية}}
+              AND cu.CUST_TYPE = {{flag:CUST_TYPE:عميل}}
             GROUP BY cu.CUST_NAME
+            HAVING SUM(m.FINALTOTAL) - NVL(SUM(p.paid), 0) > 0
             ORDER BY DEBT DESC
             FETCH FIRST 10 ROWS ONLY
         """,
-        "new_customers": """
-            SELECT COUNT(*) AS NEW_CUSTOMERS
-            FROM CUST
-            WHERE CUST_TYPE = 0
-              AND COMPANY_CODE = '{company}'
-              AND ROWNUM <= 500
-        """,
     },
     "hr_summary": {
-        "total_employees": """
-            SELECT COUNT(*) AS TOTAL_EMPLOYEES
-            FROM EMP
-            WHERE COMPANY_CODE = '{company}'
-              AND NVL(END_SERVICE_FLG, 0) = 0
-        """,
+        "total_employees": "SELECT COUNT(*) AS TOTAL_EMPLOYEES FROM EMPLOYEES WHERE END_SERVICE_FLG = 'N'",
         "departments": """
-            SELECT DEPT_NAME, COUNT(*) AS EMP_COUNT
-            FROM EMP
-            WHERE COMPANY_CODE = '{company}'
-              AND NVL(END_SERVICE_FLG, 0) = 0
-            GROUP BY DEPT_NAME
+            SELECT DEPT_CODE, COUNT(*) AS EMP_COUNT
+            FROM EMPLOYEES
+            WHERE END_SERVICE_FLG = 'N'
+            GROUP BY DEPT_CODE
             ORDER BY EMP_COUNT DESC
             FETCH FIRST 10 ROWS ONLY
         """,
@@ -366,55 +302,36 @@ _REPORT_QUERIES = {
 }
 
 # Weekly/monthly summaries combine sales + financial queries
-_REPORT_QUERIES["weekly_summary"] = _REPORT_QUERIES["financial_summary"].copy()
-_REPORT_QUERIES["weekly_summary"]["recent_invoices"] = """
+_REPORT_QUERIES["weekly_summary"] = dict(_REPORT_QUERIES["financial_summary"])
+_REPORT_QUERIES["weekly_summary"]["recent_invoices"] = f"""
     SELECT COUNT(*) AS RECENT_INVOICES, NVL(SUM(FINALTOTAL), 0) AS RECENT_TOTAL
     FROM MAIN_INV
-    WHERE INV_TYPE = 1
-      AND INVDATE >= SYSDATE - 7
-      AND COMPANY_CODE = '{company}'
-      AND FISCAL_YEAR = '{year}'
+    WHERE {_SALES_INV} AND INVDATE >= SYSDATE - 7
 """
 
-_REPORT_QUERIES["monthly_summary"] = _REPORT_QUERIES["financial_summary"].copy()
-_REPORT_QUERIES["monthly_summary"]["monthly_sales_trend"] = """
-    SELECT TO_CHAR(INVDATE, 'YYYY-MM') AS MONTH,
-           SUM(FINALTOTAL) AS TOTAL
-    FROM MAIN_INV
-    WHERE INV_TYPE = 1
-      AND COMPANY_CODE = '{company}'
-      AND FISCAL_YEAR = '{year}'
+_REPORT_QUERIES["monthly_summary"] = dict(_REPORT_QUERIES["financial_summary"])
+_REPORT_QUERIES["monthly_summary"]["monthly_sales_trend"] = f"""
+    SELECT TO_CHAR(INVDATE, 'YYYY-MM') AS MONTH, SUM(FINALTOTAL) AS TOTAL
+    FROM MAIN_INV WHERE {_SALES_INV}
     GROUP BY TO_CHAR(INVDATE, 'YYYY-MM')
     ORDER BY MONTH
 """
 
 _REPORT_QUERIES["purchases_report"] = {
-    "total_purchases": """
-        SELECT NVL(SUM(FINALTOTAL), 0) AS TOTAL_PURCHASES,
-               COUNT(*) AS PURCHASE_COUNT
-        FROM MAIN_INV
-        WHERE INV_TYPE = 2
-          AND COMPANY_CODE = '{company}'
-          AND FISCAL_YEAR = '{year}'
+    "total_purchases": f"""
+        SELECT NVL(SUM(FINALTOTAL), 0) AS TOTAL_PURCHASES, COUNT(*) AS PURCHASE_COUNT
+        FROM MAIN_INV WHERE {_PURCHASE_INV}
     """,
     "top_suppliers": """
-        SELECT cu.CUST_NAME, SUM(m.FINALTOTAL) AS TOTAL
+        SELECT cu.CUST_NAME, SUM(DECODE(m.RETURN_FLAG, 0, m.FINALTOTAL, -m.FINALTOTAL)) AS TOTAL
         FROM MAIN_INV m
         JOIN CUST cu ON cu.CUSTID = m.CUST_ID AND cu.CUST_TYPE = m.CUST_TYPE
-        WHERE m.INV_TYPE = 2
-          AND m.COMPANY_CODE = '{company}'
-          AND m.FISCAL_YEAR = '{year}'
+        WHERE m.INVTYPE = {{flag:INVTYPE:شراء}} AND cu.CUST_TYPE = {{flag:CUST_TYPE:مورد}}
         GROUP BY cu.CUST_NAME
         ORDER BY TOTAL DESC
         FETCH FIRST 10 ROWS ONLY
     """,
-    "payments_made": """
-        SELECT NVL(SUM(AMOUNT), 0) AS TOTAL_PAID
-        FROM PAYED
-        WHERE PAY_TYPE = 2
-          AND COMPANY_CODE = '{company}'
-          AND FISCAL_YEAR = '{year}'
-    """,
+    "payments_made": _PAID.format(alias="TOTAL_PAID"),
 }
 
 
@@ -426,10 +343,15 @@ async def generate_executive_report(
     report_type: str,
     company_code: str = "1",
     fiscal_year: str = "2024",
+    user_id: str = "",
 ) -> ExecutiveReport:
     """
     Generate an executive report by running real SQL queries
     and synthesizing insights via LLM.
+
+    Every query is resolved against the comments and then scoped to the caller
+    (company, fiscal year, branches, role) by security.scope — a report is about
+    exactly one company and year, whoever asks.
     """
     import datetime
 
@@ -446,9 +368,13 @@ async def generate_executive_report(
     # Execute all queries and collect raw data
     raw_data = {}
     for query_name, sql_template in queries.items():
-        sql = sql_template.format(company=company_code, year=fiscal_year)
         try:
-            data = await execute_query(sql)
+            sql = _resolve_flag_placeholders(sql_template)
+            safety, params = prepare_sql(sql, user_id=user_id, company_code=company_code,
+                                         fiscal_year=fiscal_year, classify=False)
+            if not safety.is_safe:
+                raise PermissionError(safety.blocked_reason)
+            data = await execute_query(safety.sql, params) if params else await execute_query(safety.sql)
             raw_data[query_name] = data
         except Exception as e:
             log.warning(f"[EXEC_REPORT] Query '{query_name}' failed: {e}")

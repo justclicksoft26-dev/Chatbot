@@ -397,15 +397,25 @@ def load_roles_from_db():
         log.debug(f"[RBAC] DB role loading skipped: {e}")
 
 
-def _rls_is_strict(user_id: str) -> bool:
-    """Should a restricted role with no branches be locked out for this user?
+KNOWN_DOMAINS = frozenset({"accounting", "invoicing", "inventory", "customers", "hr", "system"})
 
-    Yes when the identity is trustworthy (JWT mode, or the user has an explicit
-    assignment) or when RLS_STRICT=1 forces it for everyone including unknown users.
+
+def is_enforced(user_id: str) -> bool:
+    """Are role restrictions (domains, masked columns, row cap, branches) applied to this user?
+
+    Yes when the identity can be trusted — AUTH_MODE=jwt, or the user has an explicit
+    role assignment — or when RBAC_STRICT=1 forces it for everyone, unknown users
+    included. An anonymous api_key-mode user (an id nobody verified) is not restricted,
+    because anything restricting it would only restrict whoever types a different name.
     """
-    if os.getenv("RLS_STRICT", "").strip().lower() in ("1", "true", "yes"):
+    if os.getenv("RBAC_STRICT", "").strip().lower() in ("1", "true", "yes"):
         return True
     return auth_mode() == "jwt" or user_id in _user_roles
+
+
+def enforced_permissions(user_id: str) -> Optional[UserRole]:
+    """The user's permissions when they must be enforced, else None."""
+    return get_user_permissions(user_id) if is_enforced(user_id) else None
 
 
 def inject_row_level_security(
@@ -421,7 +431,7 @@ def inject_row_level_security(
 
     Returns (original_sql, {}) unchanged when no branch restriction applies.
     A restricted role with no assigned branch gets ``1 = 0`` (no rows) instead of
-    unrestricted access — see _rls_is_strict for the one legacy exception.
+    unrestricted access — see is_enforced for the one legacy exception.
 
     Fixes vs the old regex-based implementation:
 
@@ -473,7 +483,7 @@ def inject_row_level_security(
     # Anonymous dev users (unknown id, AUTH_MODE=api_key) keep the legacy open
     # behaviour unless RLS_STRICT=1, because their identity cannot be verified anyway.
     deny_all = not branches
-    if deny_all and not _rls_is_strict(user_id):
+    if deny_all and not is_enforced(user_id):
         return sql, {}
 
     # Only inject when the outer query actually references a branch-aware table.

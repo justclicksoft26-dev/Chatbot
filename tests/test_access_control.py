@@ -30,7 +30,7 @@ def client():
 def clean_state(monkeypatch):
     rbac._user_roles.clear()
     company_manager._COMPANY_ACCESS.clear()
-    for var in ("ALLOWED_COMPANIES", "ADMIN_API_KEY", "ALLOW_INSECURE_ADMIN", "RLS_STRICT", "ACTIONS_ENABLED"):
+    for var in ("ALLOWED_COMPANIES", "ADMIN_API_KEY", "ALLOW_INSECURE_ADMIN", "RBAC_STRICT", "ACTIONS_ENABLED"):
         monkeypatch.delenv(var, raising=False)
     yield
     rbac._user_roles.clear()
@@ -194,7 +194,7 @@ def test_unknown_user_in_jwt_mode_sees_nothing(jwt_mode):
 
 
 def test_rls_strict_locks_out_unknown_users(monkeypatch):
-    monkeypatch.setenv("RLS_STRICT", "1")
+    monkeypatch.setenv("RBAC_STRICT", "1")
     sql, _ = rbac.inject_row_level_security(SQL, "never-assigned")
     assert "1 = 0" in sql
 
@@ -205,7 +205,7 @@ def test_anonymous_dev_user_keeps_legacy_access_unless_strict():
 
 
 def test_unrestricted_roles_are_untouched_even_when_strict(monkeypatch):
-    monkeypatch.setenv("RLS_STRICT", "1")
+    monkeypatch.setenv("RBAC_STRICT", "1")
     rbac.assign_role("boss", "admin")
     assert rbac.inject_row_level_security(SQL, "boss") == (SQL, {})
 

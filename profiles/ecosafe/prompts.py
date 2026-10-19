@@ -220,3 +220,6 @@ HELP = """يمكنني مساعدتك في تحليل واستعراض بيان�
 ---
 أستطيع أيضاً إنشاء رسوم بيانية، مقارنات، وتحليلات تنفيذية.
 اسأل بالعربي أو الإنجليزي — أو العامية!"""
+
+OUT_OF_SCOPE_AR = "أنا مختص بالأسئلة المتعلقة بنظام CRM (عملاء، موظفون، دورات، أنشطة). سؤالك خارج نطاق البيانات المتاحة."
+OUT_OF_SCOPE_EN = "I specialize in CRM system questions (customers, employees, courses, activities). Your question is outside the available data scope."

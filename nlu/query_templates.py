@@ -99,6 +99,9 @@ def _resolve_flag_placeholders(sql: str) -> str:
     return _FLAG_PH.sub(_repl, sql)
 
 
+resolve_flags = _resolve_flag_placeholders   # public name: other modules (reports) resolve flags too
+
+
 def render_template(template: QueryTemplate, entities: dict) -> str:
     """Render a template with extracted entities, producing safe SQL."""
     sql = template.sql.strip()

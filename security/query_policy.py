@@ -147,6 +147,28 @@ def _scope_literal(value) -> str:
     return text if text.isdigit() else f"'{text}'"
 
 
+_TENANT_PRED = (r"(?:\w+\.)?(?:COMPANY_CODE|FISCAL_YEAR)\s*=\s*"
+                r"(?:\d+|'[^']*'|:\w+)(?![\w.])")
+_AFTER_WHERE = r"(?=\s*(?:\)|$|GROUP\b|ORDER\b|HAVING\b|FETCH\b|OFFSET\b|UNION\b|INTERSECT\b|MINUS\b))"
+
+
+def strip_tenant_conditions(sql: str) -> str:
+    """Remove COMPANY_CODE / FISCAL_YEAR comparisons against a literal or bind variable.
+
+    Model-written SQL must not choose its own company or year: the real scope is added by
+    apply_policy afterwards. Joins such as ``a.COMPANY_CODE = b.COMPANY_CODE`` and
+    ``IN (...)`` lists are left alone.
+    """
+    flags = re.IGNORECASE
+    previous = None
+    while previous != sql:
+        previous = sql
+        sql = re.sub(rf"\s+AND\s+{_TENANT_PRED}", "", sql, flags=flags)             # a AND tenant
+        sql = re.sub(rf"(\bWHERE|\()\s*{_TENANT_PRED}\s+AND\s+", r"\1 ", sql, flags=flags)  # WHERE tenant AND a
+        sql = re.sub(rf"\bWHERE\s+{_TENANT_PRED}{_AFTER_WHERE}", "", sql, flags=flags)  # WHERE tenant (only predicate)
+    return sql
+
+
 # ══════════════════════════════════════════════════════════════════
 # Query Classification Layer
 # ══════════════════════════════════════════════════════════════════
@@ -294,6 +316,8 @@ def apply_policy(
     company_code: str = "",
     fiscal_year: str = "",
     question: str = "",
+    allowed_companies: Optional[set] = None,
+    classify: bool = True,
 ) -> str:
     """
     Main entry point: Apply the query policy to a SQL statement.
@@ -307,18 +331,32 @@ def apply_policy(
     # Set operations (UNION / INTERSECT / MINUS): each branch is its own query and
     # needs its own filters, otherwise only the first branch would be scoped.
     combined = map_set_branches(
-        sql, lambda branch: apply_policy(branch, company_code, fiscal_year, question))
+        sql, lambda branch: apply_policy(branch, company_code, fiscal_year, question,
+                                         allowed_companies, classify))
     if combined is not None:
         return combined
 
     company_lit = _scope_literal(company_code) if company_code else ""
     fiscal_lit = _scope_literal(fiscal_year) if fiscal_year else ""
 
-    # Step 1: Get policy decision
-    decision = decide_policy(sql, question, company_code, fiscal_year)
+    # Step 1: Get policy decision (classify=False: a fixed report — both filters, no guessing)
+    if classify:
+        decision = decide_policy(sql, question, company_code, fiscal_year)
+    else:
+        decision = PolicyDecision(
+            query_type=QueryType.TRANSACTIONAL,
+            apply_company=bool(company_code),
+            apply_fiscal=bool(fiscal_year),
+            scope=FilterScope.PRIMARY_ONLY,
+            reason="Fixed report — scoped to one company and fiscal year",
+        )
 
     # Step 2: If no filters needed, return unchanged
     if not decision.apply_company and not decision.apply_fiscal:
+        # Comparisons / consolidations are exempt from the *current* company filter, but
+        # never from the set of companies the caller may see at all.
+        if allowed_companies and decision.query_type in (QueryType.COMPARATIVE, QueryType.AGGREGATION):
+            return _restrict_to_companies(sql, allowed_companies)
         log.info(f"[POLICY] {decision.query_type.value}: no filters applied — {decision.reason}")
         return sql
 
@@ -326,7 +364,11 @@ def apply_policy(
     outer_sql = _strip_subqueries(sql)
     table_aliases = _extract_table_aliases(outer_sql)
     if not table_aliases:
-        return sql
+        # The outer query only reads from inline views: FROM (SELECT ... FROM ITEMS ...).
+        # Their tables are the real ones, so scope the views themselves.
+        return _scope_inline_views(
+            sql, lambda inner: apply_policy(inner, company_code, fiscal_year, question,
+                                            allowed_companies, classify))
 
     filter_targets = _resolve_filter_targets(table_aliases, sql, decision)
 
@@ -355,6 +397,47 @@ def apply_policy(
     log.info(f"[POLICY] {decision.query_type.value}: applied {len(conditions)} filter(s) "
              f"on {[t[0] for t in filter_targets]}")
     return result
+
+
+_INLINE_VIEW_RE = re.compile(r"\bFROM\s*\(\s*SELECT\b", re.IGNORECASE)
+
+
+def _scope_inline_views(sql: str, scope) -> str:
+    """Apply `scope(inner_sql)` to every top-level ``FROM (SELECT ...)`` view of `sql`."""
+    out, i, n = [], 0, len(sql)
+    while i < n:
+        m = _INLINE_VIEW_RE.search(sql, i)
+        if not m:
+            break
+        open_pos = sql.index("(", m.start())
+        depth, j = 0, open_pos
+        while j < n:
+            if sql[j] == "(":
+                depth += 1
+            elif sql[j] == ")":
+                depth -= 1
+                if depth == 0:
+                    break
+            j += 1
+        if depth != 0:
+            break                                   # unbalanced: leave the rest untouched
+        out.append(sql[i:open_pos + 1])
+        out.append(scope(sql[open_pos + 1:j]))
+        i = j
+    out.append(sql[i:])
+    return "".join(out)
+
+
+def _restrict_to_companies(sql: str, allowed_companies: set) -> str:
+    """Limit every tenant table of the outer query to `allowed_companies`."""
+    allowed = sorted(allowed_companies)
+    in_list = ", ".join(_scope_literal(c) for c in allowed)
+    conditions = []
+    for table, alias in _extract_table_aliases(_strip_subqueries(sql)):
+        if table.upper() in TENANT_TABLES and not _already_filtered(sql, "COMPANY_CODE", alias, table):
+            prefix = f"{alias}." if alias else ""
+            conditions.append(f"{prefix}COMPANY_CODE IN ({in_list})")
+    return _inject_at_correct_position(sql, conditions) if conditions else sql
 
 
 def _resolve_filter_targets(
@@ -427,24 +510,37 @@ def _extract_all_tables(sql: str) -> set[str]:
     return tables
 
 
+_ALIAS_STOP = {"WHERE", "ON", "JOIN", "LEFT", "RIGHT", "INNER", "OUTER", "GROUP", "ORDER",
+               "HAVING", "FETCH", "OFFSET", "UNION", "INTERSECT", "MINUS", "AS", "CROSS",
+               "NATURAL", "FULL", "AND", "OR", "SET", "USING"}
+_FROM_LIST_END = re.compile(
+    r"\b(?:WHERE|GROUP|ORDER|HAVING|FETCH|OFFSET|UNION|INTERSECT|MINUS|JOIN|LEFT|RIGHT|INNER|CROSS|FULL|NATURAL)\b",
+    re.IGNORECASE)
+
+
 def _extract_table_aliases(sql: str) -> list[tuple[str, str]]:
-    """Extract (table_name, alias) pairs from outer SQL."""
+    """Extract (table_name, alias) pairs from outer SQL.
+
+    Handles ``FROM a x``, ``FROM a x, b y, c`` (old comma joins) and every kind of
+    ``JOIN b y [ON ...]`` including CROSS JOIN, which has no ON.
+    """
     results = []
-    _KEYWORDS = {"WHERE", "ON", "JOIN", "LEFT", "RIGHT", "INNER", "OUTER",
-                 "GROUP", "ORDER", "HAVING", "FETCH", "UNION", "AS",
-                 "CROSS", "NATURAL", "FULL", "AND", "OR", "SET"}
 
     for m in re.finditer(r'\bFROM\s+(\w+)(?:\s+(\w+))?', sql, re.IGNORECASE):
-        table = m.group(1)
-        alias = m.group(2) or ""
-        if alias.upper() in _KEYWORDS:
+        table, alias = m.group(1), m.group(2) or ""
+        if alias.upper() in _ALIAS_STOP:
             alias = ""
         results.append((table, alias))
+        # comma-separated tables that follow in the same FROM list
+        tail = sql[m.end():]
+        end = _FROM_LIST_END.search(tail)
+        for extra in re.finditer(r',\s*(\w+)(?:\s+(\w+))?', tail[:end.start()] if end else tail):
+            alias = extra.group(2) or ""
+            results.append((extra.group(1), "" if alias.upper() in _ALIAS_STOP else alias))
 
-    for m in re.finditer(r'\bJOIN\s+(\w+)(?:\s+(\w+))?\s+ON', sql, re.IGNORECASE):
-        table = m.group(1)
+    for m in re.finditer(r'\bJOIN\s+(\w+)(?:\s+(\w+))?', sql, re.IGNORECASE):
         alias = m.group(2) or ""
-        results.append((table, alias))
+        results.append((m.group(1), "" if alias.upper() in _ALIAS_STOP else alias))
 
     return results
 

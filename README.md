@@ -133,7 +133,7 @@ python scripts/mine_apex_export.py "f103.sql" inventory.json --tables MAIN_INV,C
 - **صلاحية الشركات:** من تعيين المستخدم (`company` في الـ JWT أو `AI_USER_ROLES`، وتقبل `1,2` أو `*`)،
   أو من `grant_company_access()`، أو من `ALLOWED_COMPANIES` للمستخدمين غير المعروفين. في وضع `jwt` المستخدم بدون شركة مرفوض.
 - **عزل الفروع:** فلتر `BRANCH_ID` بـ bind variables. الدور المقيَّد بفروع ولم تُحدَّد له فروع يرى **صفر صفوف** (`1 = 0`)،
-  ويُطبَّق ذلك على كل مستخدم له تعيين صريح أو في وضع `jwt`، وعلى الجميع مع `RLS_STRICT=1`.
+  ويُطبَّق ذلك على كل مستخدم له تعيين صريح أو في وضع `jwt`، وعلى الجميع مع `RBAC_STRICT=1`.
 - **الإجراءات الكتابية:** مغلقة افتراضياً (`ACTIONS_ENABLED=0`)، لأدوار `admin/manager` فقط، بنفس البوابة في الشات وفي `/actions`،
   وتتطلب تأكيداً من صاحب الطلب. كل مستخدم يرى إجراءاته فقط (`scope=all` للمسؤول)، والإحصائيات للمسؤول.
 - **مسارات الإدارة** (`/chat/provider`، `/chat/reload-schema`، `/chat/cache/*`، `/chat/schema-*`، `/chat/audit`، `/chat/usage`،

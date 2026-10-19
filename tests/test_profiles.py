@@ -11,7 +11,8 @@ REQUIRED = {
     "intents": ["DOMAIN_SIGNALS", "SUB_INTENT_PATTERNS", "ENTITY_PATTERNS", "SUB_INTENT_DOMAIN_PREFIXES",
                 "DEFAULT_DOMAIN", "CLASSIFY_PROMPT_INTRO", "CLASSIFY_PROMPT_EXAMPLES"],
     "templates": ["TEMPLATES"],
-    "prompts": ["SQL_SYSTEM_PROMPT", "ANALYST_SYSTEM_PROMPT", "GREETING", "GREETING_SUGGESTIONS", "HELP"],
+    "prompts": ["SQL_SYSTEM_PROMPT", "ANALYST_SYSTEM_PROMPT", "GREETING", "GREETING_SUGGESTIONS", "HELP",
+                "OUT_OF_SCOPE_AR", "OUT_OF_SCOPE_EN"],
     "suggestions": ["DOMAIN_ALIASES", "DOMAIN_SUGGESTIONS", "INTENT_SUGGESTIONS", "COLUMN_LABELS",
                     "FALLBACK_SUGGESTIONS", "EMPTY_STATE_RULES", "DOMAIN_EMPTY_HINTS"],
 }
@@ -51,6 +52,13 @@ def test_profile_identity(profile):
     p = profiles.active()
     assert p.NAME == profile and p.TITLE and p.BRAND
     assert p.COMMENTS_FILE.exists()
+    assert isinstance(p.TENANT_FILTERING, bool)
+
+
+def test_only_the_erp_profile_filters_by_tenant():
+    import importlib
+    assert importlib.import_module("profiles.justclick").TENANT_FILTERING is True
+    assert importlib.import_module("profiles.ecosafe").TENANT_FILTERING is False
 
 
 def test_every_part_has_its_required_names(profile):
@@ -201,3 +209,65 @@ def test_engine_reads_the_active_profile(monkeypatch):
         assert classify_intent("كم نشاط سجلنا").sub_intent != "activity_count"
     finally:
         _load_profile("justclick")
+
+
+# ── invariant: no tenant table is left unscoped, in anything we ship ───
+def _outer_tables(sql):
+    """Tables a query reads directly; follows inline views when that is all the outer query has."""
+    from security import query_policy as qp
+    refs = qp._extract_table_aliases(qp._strip_subqueries(sql))
+    if refs:
+        return refs, sql
+    match = qp._INLINE_VIEW_RE.search(sql)
+    if not match:
+        return [], sql
+    start = sql.index("(", match.start())
+    depth, end = 0, start
+    for end in range(start, len(sql)):
+        depth += (sql[end] == "(") - (sql[end] == ")")
+        if depth == 0:
+            break
+    return _outer_tables(sql[start + 1:end])
+
+
+def _assert_scoped(label, sql):
+    from security import query_policy as qp
+    refs, scope_sql = _outer_tables(sql)
+    for table, alias in refs:
+        if table.upper() in qp.TENANT_TABLES and table.upper() not in qp.INHERITS_TENANT:
+            assert qp._already_filtered(scope_sql, "COMPANY_CODE", alias, table), \
+                f"{label}: {table} {alias} has no company filter\n{sql}"
+
+
+def test_every_template_leaves_no_tenant_table_unscoped(justclick_profile):
+    from nlu import query_templates
+    from security.scope import prepare_sql
+    for template in query_templates.TEMPLATES.values():
+        sql = query_templates.render_template(template, _entities_for(template))
+        safety, _ = prepare_sql(sql, user_id="u1", company_code="1", fiscal_year="2024")
+        assert safety.is_safe, template.name
+        _assert_scoped(f"template {template.name}", safety.sql)
+
+
+def test_every_dashboard_widget_leaves_no_tenant_table_unscoped(justclick_profile):
+    from reporting.dashboard_engine import DASHBOARDS
+    from security.scope import prepare_sql
+    checked = 0
+    for dash_id, dash in DASHBOARDS.items():
+        for widget in dash.widgets:
+            safety, _ = prepare_sql(widget.sql, user_id="u1", company_code="1", fiscal_year="2024")
+            assert safety.is_safe, f"{dash_id}/{widget.id}: {safety.blocked_reason}"
+            _assert_scoped(f"dashboard {dash_id}/{widget.id}", safety.sql)
+            checked += 1
+    assert checked >= 40
+
+
+def test_every_report_query_leaves_no_tenant_table_unscoped(justclick_profile):
+    from reporting.executive_reports import _REPORT_QUERIES, _resolve_flag_placeholders
+    from security.scope import prepare_sql
+    for rtype, queries in _REPORT_QUERIES.items():
+        for name, sql in queries.items():
+            safety, _ = prepare_sql(_resolve_flag_placeholders(sql), user_id="u1", company_code="1",
+                                    fiscal_year="2024", classify=False)
+            assert safety.is_safe, f"{rtype}/{name}: {safety.blocked_reason}"
+            _assert_scoped(f"report {rtype}/{name}", safety.sql)

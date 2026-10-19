@@ -4,6 +4,7 @@ The central engine that orchestrates:
   Intent Classification -> Template Matching -> Safe SQL -> Execution -> Formatting
   + Action Engine -> Workflow -> Export -> APEX Navigation -> Executive Reports
 """
+import json
 import re
 import os
 import logging
@@ -18,7 +19,8 @@ logging.basicConfig(level=logging.INFO, handlers=[_handler])
 from dataclasses import dataclass, field
 from typing import Optional
 
-from nlu.intent_classifier import classify_intent, Intent
+import profiles
+from nlu.intent_classifier import classify_intent, has_contextual_signal, Intent
 from nlu.query_templates import find_template, render_template, QueryTemplate
 from security.sql_safety import validate_sql, log_query, SafetyResult
 from infra.memory import (
@@ -34,7 +36,8 @@ from infra.cache import (
     make_sql_key, make_dash_key, make_schema_key,
 )
 from security import rbac
-from security.company_manager import inject_company_filter, validate_company_access
+from security.company_manager import validate_company_access
+from security.scope import prepare_sql
 from reporting.copilot import (
     generate_suggestions, generate_insights, auto_generate_chart,
     COPILOT_GREETING, COPILOT_HELP, GREETING_SUGGESTIONS,
@@ -51,6 +54,21 @@ from erp_actions.workflows import is_workflow_query, get_pending_approvals, get_
 from erp_actions.apex_nav import detect_navigation_intent, find_pages
 from reporting.export_engine import detect_export_intent, ExportRequest, generate_export, ExportFormat
 from reporting.executive_reports import detect_report_intent, generate_executive_report, format_report_for_chat
+
+
+def _permission_fingerprint(perms) -> str:
+    """"role:domains:branches" — part of every cache key, so users with different
+    permissions never share an entry (two managers on different branches see different data)."""
+    if not perms:
+        return "viewer"
+    domains = ",".join(sorted(perms.allowed_domains or []))
+    branches = ",".join(sorted(b for b in (perms.allowed_branches or []) if b != "*"))
+    return f"{perms.role}:{domains}:{branches}"
+
+
+def _prep(sql: str, question: str, user_id: str, company_code: str, fiscal_year: str):
+    return prepare_sql(sql, question=question, user_id=user_id,
+                       company_code=company_code, fiscal_year=fiscal_year)
 
 
 # ── Hybrid semantic-first routing gate ───────────────────────────────
@@ -631,15 +649,7 @@ async def process_question(
     # never receive each other's cached response (e.g. two "manager" users assigned
     # to different branches would see different data — they need separate entries).
     # Format: "role:domain1,domain2:branch1,branch2"
-    _user_role = _user_perms.role if _user_perms else "viewer"
-    if _user_perms:
-        _domains  = ",".join(sorted(_user_perms.allowed_domains or []))
-        _branches = ",".join(sorted(
-            b for b in (_user_perms.allowed_branches or []) if b != "*"
-        ))
-        _perm_fp = f"{_user_role}:{_domains}:{_branches}"
-    else:
-        _perm_fp = _user_role   # fallback: "viewer" (no extra info)
+    _perm_fp = _permission_fingerprint(_user_perms)
     _session_ctx = ""
     try:
         from learning.conversation_bi import get_context as _bi_get_ctx
@@ -773,6 +783,7 @@ async def process_question(
             report_type=report_type,
             company_code=company_code,
             fiscal_year=fiscal_year,
+            user_id=user_id,
         )
         if result:
             result.execution_time_ms = int((time.time() - start) * 1000)
@@ -843,12 +854,25 @@ async def process_question(
     # context when the current question didn't extract them — they are single-question
     # scope. Sticky operational keys (invtype, fiscal_year, company/branch code, date
     # ranges) do carry over so multi-turn invoice queries keep their INVTYPE context.
+    # Relative-time signals ("today", "last month") describe ONE question: "total sales" after
+    # "sales today" means all time, so they only carry over into a follow-up ("and purchases?").
     _filtered_context = {
         k: v for k, v in context_entities.items()
-        if k not in _GATE_SPECIFIC_ENTITIES or k in intent.entities
+        if (k not in _GATE_SPECIFIC_ENTITIES or k in intent.entities)
+        and (not k.startswith("time_") or k in intent.entities or has_contextual_signal(question))
     }
     merged_entities = {**_filtered_context, **intent.entities}
     intent.entities = merged_entities
+
+    # ── Role domain restriction (enforced users only; see rbac.is_enforced) ──
+    if (intent.domain in rbac.KNOWN_DOMAINS and rbac.is_enforced(user_id)
+            and not rbac.check_domain_access(user_id, intent.domain)):
+        log.info(f"[PIPELINE] domain {intent.domain!r} denied for user={user_id}")
+        return PipelineResult(
+            answer="ليس لديك صلاحية على هذا المجال.",
+            method="error",
+            intent=intent,
+        )
 
     # Record user turn
     add_user_turn(user_id, question, intent.entities, intent.sub_intent)
@@ -893,7 +917,7 @@ async def process_question(
 
     elif _wants_dashboard(question):
         log.debug(f"[PIPELINE] Dashboard matched for: {question}")
-        result = await _handle_dashboard(question, session_history)
+        result = await _handle_dashboard(question, session_history, user_id, company_code, fiscal_year)
         if not result:
             log.info("[PIPELINE] Dashboard detected but no match -> LLM data query path")
             result = await _handle_data_query(
@@ -1155,8 +1179,8 @@ async def _execute_template(
 
         log.info(f"[PIPELINE] Template={template.name} SQL={sql[:80]}...")
 
-        # Safety check
-        safety = validate_sql(sql)
+        # Safety check + company / year / branch scoping
+        safety, params = _prep(sql, question, user_id, company_code, fiscal_year)
         if not safety.is_safe:
             log.info(f"[PIPELINE] Template SQL blocked: {safety.blocked_reason}")
             log_query(user_id, question, sql, safety, success=False)
@@ -1165,7 +1189,7 @@ async def _execute_template(
         sql = safety.sql
 
         # Execute
-        data, err = await _try_execute(sql)
+        data, err = await _try_execute(sql, params)
 
         if err:
             log.info(f"[PIPELINE] Template execution failed: {err[:150]}")
@@ -1174,11 +1198,11 @@ async def _execute_template(
 
         # Auto-retry LIKE for account codes
         if len(data) == 0 and "account_code" in entities:
-            data, sql = await _try_like_fallback(sql, entities.get("account_code", ""))
+            data, sql = await _try_like_fallback(sql, entities.get("account_code", ""), params)
 
         # Auto-retry LIKE for name columns when exact match returns 0
         if len(data) == 0:
-            data, sql = await _try_name_like_fallback(sql)
+            data, sql = await _try_name_like_fallback(sql, params)
 
         truncated = any(row.get("__truncated__") for row in data)
         data = [row for row in data if not row.get("__truncated__")]
@@ -1359,8 +1383,8 @@ async def _execute_llm_controlled(
         )
 
 
-        # Safety validation
-        safety = validate_sql(sql_raw)
+        # Safety validation + company / year / branch scoping
+        safety, params = _prep(sql_raw, question, user_id, company_code, fiscal_year)
         if not safety.is_safe:
             log.info(f"[PIPELINE] LLM SQL blocked: {safety.blocked_reason}")
             log_query(user_id, question, sql_raw, safety, success=False)
@@ -1374,7 +1398,7 @@ async def _execute_llm_controlled(
         sql = safety.sql
 
         # Execute
-        data, err = await _try_execute(sql)
+        data, err = await _try_execute(sql, params)
 
         # Auto-fix loop: if SQL failed, ask LLM to fix
         # TPM budget: classify_intent (~700 tok) + generate_sql (~3000 tok) already consumed.
@@ -1398,10 +1422,10 @@ async def _execute_llm_controlled(
                 history=history,
                 extra_context=extra_context,  # entity hint persists to auto-fix (e.g. LIKE constraint)
             )
-            safety = validate_sql(sql_raw)
+            safety, params = _prep(sql_raw, question, user_id, company_code, fiscal_year)
             if safety.is_safe:
                 sql = safety.sql
-                data, err = await _try_execute(sql)
+                data, err = await _try_execute(sql, params)
 
         if err:
             log_query(user_id, question, sql, safety, success=False, error=err)
@@ -1409,9 +1433,9 @@ async def _execute_llm_controlled(
             # the question is likely out of scope — return polite refusal instead of crash.
             if not intent.sub_intent:
                 is_arabic = any('؀' <= c <= 'ۿ' for c in question)
+                texts = profiles.part("prompts")
                 return PipelineResult(
-                    answer="أنا مختص بالأسئلة المتعلقة بنظام CRM (عملاء، موظفون، دورات، أنشطة). سؤالك خارج نطاق البيانات المتاحة." if is_arabic
-                    else "I specialize in CRM system questions (customers, employees, courses, activities). Your question is outside the available data scope.",
+                    answer=texts.OUT_OF_SCOPE_AR if is_arabic else texts.OUT_OF_SCOPE_EN,
                     sql="",
                     method="out_of_scope",
                 )
@@ -1421,11 +1445,11 @@ async def _execute_llm_controlled(
         if len(data) == 0:
             match = re.search(r"CHART_CODE\s*=\s*'?(\d+)'?", sql, re.IGNORECASE)
             if match:
-                data, sql = await _try_like_fallback(sql, match.group(1))
+                data, sql = await _try_like_fallback(sql, match.group(1), params)
 
         # Auto-retry LIKE for name columns when exact match returns 0
         if len(data) == 0:
-            data, sql = await _try_name_like_fallback(sql)
+            data, sql = await _try_name_like_fallback(sql, params)
 
         truncated = any(row.get("__truncated__") for row in data)
         data = [row for row in data if not row.get("__truncated__")]
@@ -1527,9 +1551,13 @@ def _needs_history_context(intent: Intent, history: list) -> bool:
 
 # ── Helpers ────────────────────────────────────────────────────────
 
-async def _try_execute(sql: str) -> tuple[list[dict], Optional[str]]:
-    """Execute SQL and return (data, error_or_none). Uses cache when available."""
-    cache_key = make_sql_key(sql)
+async def _try_execute(sql: str, params: dict = None) -> tuple[list[dict], Optional[str]]:
+    """Execute SQL and return (data, error_or_none). Uses cache when available.
+
+    `params` are bind variables (the caller's branch restriction). They are part of
+    the cache key: two users with different branches must never share a result.
+    """
+    cache_key = make_sql_key(sql + "|" + json.dumps(params or {}, sort_keys=True, default=str))
 
     # Check cache first
     cached = sql_cache.get(cache_key)
@@ -1538,7 +1566,7 @@ async def _try_execute(sql: str) -> tuple[list[dict], Optional[str]]:
         return cached, None
 
     try:
-        data = await execute_query(sql)
+        data = await execute_query(sql, params) if params else await execute_query(sql)
         # Cache successful results (only non-empty and non-error)
         if data is not None:
             sql_cache.set(cache_key, data)
@@ -1554,7 +1582,7 @@ _NAME_COLUMNS = re.compile(
 )
 
 
-async def _try_name_like_fallback(sql: str) -> tuple[list[dict], str]:
+async def _try_name_like_fallback(sql: str, params: dict = None) -> tuple[list[dict], str]:
     """Replace = with LIKE for name columns. Two levels:
     1. LIKE '%full value%'
     2. Split words: LIKE '%word1%' AND LIKE '%word2%' (fuzzy)
@@ -1570,7 +1598,7 @@ async def _try_name_like_fallback(sql: str) -> tuple[list[dict], str]:
         sql_like = sql_like.replace(m.group(0), f"{col} LIKE '%{val}%'")
 
     try:
-        data = await execute_query(sql_like)
+        data = await execute_query(sql_like, params) if params else await execute_query(sql_like)
         if data:
             log.info(f"[PIPELINE] Name LIKE fallback succeeded: {len(data)} rows")
             return data, sql_like
@@ -1589,7 +1617,7 @@ async def _try_name_like_fallback(sql: str) -> tuple[list[dict], str]:
             sql_words = sql_words.replace(m.group(0), f"{col} LIKE '%{val}%'")
 
     try:
-        data = await execute_query(sql_words)
+        data = await execute_query(sql_words, params) if params else await execute_query(sql_words)
         if data:
             log.info(f"[PIPELINE] Name WORDS fallback succeeded: {len(data)} rows")
             return data, sql_words
@@ -1599,13 +1627,13 @@ async def _try_name_like_fallback(sql: str) -> tuple[list[dict], str]:
     return [], sql
 
 
-async def _try_like_fallback(sql: str, code: str) -> tuple[list[dict], str]:
+async def _try_like_fallback(sql: str, code: str, params: dict = None) -> tuple[list[dict], str]:
     """Try CHART_CODE LIKE fallback when exact match returns 0 results."""
     match = re.search(r"CHART_CODE\s*=\s*'?" + re.escape(code) + r"'?", sql, re.IGNORECASE)
     if match:
         sql_like = sql.replace(match.group(0), f"CHART_CODE LIKE '{code}%'")
         try:
-            data = await execute_query(sql_like)
+            data = await execute_query(sql_like, params) if params else await execute_query(sql_like)
             if data:
                 return data, sql_like
         except Exception:
@@ -1908,7 +1936,8 @@ def _wants_dashboard(question: str) -> bool:
     return bool(_DASHBOARD_REQUEST.search(question))
 
 
-async def _handle_dashboard(question: str, history: list = None) -> Optional[PipelineResult]:
+async def _handle_dashboard(question: str, history: list = None, user_id: str = "",
+                            company_code: str = "", fiscal_year: str = "") -> Optional[PipelineResult]:
     """Handle dashboard request — tries explicit match first, then infers from conversation history."""
     dash_id = find_dashboard_by_query(question)
 
@@ -1922,14 +1951,26 @@ async def _handle_dashboard(question: str, history: list = None) -> Optional[Pip
     if not dash_id:
         return None  # No dashboard matched — caller falls back to data query
 
-    # Check dashboard cache
-    d_key = make_dash_key(dash_id)
+    # Role domain restriction (enforced users only)
+    from reporting.dashboard_engine import DASHBOARDS
+    dash_domain = getattr(DASHBOARDS.get(dash_id), "domain", "")
+    if (dash_domain in rbac.KNOWN_DOMAINS and rbac.is_enforced(user_id)
+            and not rbac.check_domain_access(user_id, dash_domain)):
+        return PipelineResult(answer="ليس لديك صلاحية على هذا المجال.", method="error")
+
+    # Cache per company, year and permission set: a dashboard is private to its scope
+    scope_key = f"{company_code}:{fiscal_year}:{_permission_fingerprint(rbac.get_user_permissions(user_id))}"
+    d_key = make_dash_key(dash_id, scope_key)
     cached_data = dash_cache.get(d_key)
     if cached_data is not None:
         log.info(f"[PIPELINE] Dashboard cache HIT: {dash_id}")
         data = cached_data
     else:
-        data = await execute_dashboard(dash_id)
+        data = await execute_dashboard(
+            dash_id,
+            prepare=lambda sql: prepare_sql(sql, user_id=user_id, company_code=company_code,
+                                            fiscal_year=fiscal_year),
+        )
         if data:
             dash_cache.set(d_key, data)
 
@@ -2047,6 +2088,7 @@ async def _handle_executive_report(
     report_type: str,
     company_code: str,
     fiscal_year: str,
+    user_id: str = "",
 ) -> Optional[PipelineResult]:
     """Handle executive report generation."""
     try:
@@ -2054,6 +2096,7 @@ async def _handle_executive_report(
             report_type=report_type,
             company_code=company_code,
             fiscal_year=fiscal_year,
+            user_id=user_id,
         )
         chat_text = format_report_for_chat(report)
 

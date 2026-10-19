@@ -16,6 +16,7 @@ from reporting.executive_reports import (
     format_report_for_chat, REPORT_TYPES, ExecutiveReport,
 )
 from routers.auth import caller_id, ensure_company_access
+from security import rbac
 from routers.schemas import ScopeValue
 
 log = logging.getLogger("routers.exports")
@@ -92,6 +93,12 @@ async def export_data(req: ExportDataRequest):
         raise HTTPException(status_code=500, detail="فشل تصدير البيانات.")
 
 
+def _may_export(user_id: str) -> bool:
+    """Roles that cannot export are only enforced for identities we can trust."""
+    perms = rbac.enforced_permissions(user_id)
+    return perms is None or perms.can_export
+
+
 @router.post("/report")
 async def generate_report(req: ExecutiveReportRequest, request: Request):
     """
@@ -101,6 +108,8 @@ async def generate_report(req: ExecutiveReportRequest, request: Request):
     """
     user_id = caller_id(request, req.user_id)
     await ensure_company_access(user_id, req.company_code)
+    if req.export_format and not _may_export(user_id):
+        raise HTTPException(status_code=403, detail="التصدير غير متاح لدورك.")
 
     if req.report_type not in REPORT_TYPES:
         raise HTTPException(
@@ -113,6 +122,7 @@ async def generate_report(req: ExecutiveReportRequest, request: Request):
             report_type=req.report_type,
             company_code=req.company_code,
             fiscal_year=req.fiscal_year,
+            user_id=user_id,
         )
     except Exception as e:
         log.error(f"[REPORT] Generation failed: {e}")

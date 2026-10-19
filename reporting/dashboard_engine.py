@@ -767,14 +767,18 @@ _COLOR_MAP = {
 }
 
 
-async def execute_dashboard(dashboard_id: str) -> Optional[dict]:
-    """Execute all widgets in a dashboard and return assembled data."""
+async def execute_dashboard(dashboard_id: str, prepare=None) -> Optional[dict]:
+    """Execute all widgets in a dashboard and return assembled data.
+
+    `prepare(sql) -> (SafetyResult, params)` scopes each widget query to the caller
+    (security.scope.prepare_sql); without it the widget SQL runs unscoped.
+    """
     dash = DASHBOARDS.get(dashboard_id)
     if not dash:
         return None
 
     # Execute all widget queries in parallel
-    tasks = [_execute_widget(w) for w in dash.widgets]
+    tasks = [_execute_widget(w, prepare) for w in dash.widgets]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
     widgets_out = []
@@ -796,17 +800,24 @@ async def execute_dashboard(dashboard_id: str) -> Optional[dict]:
     }
 
 
-async def _execute_widget(widget: WidgetDef) -> dict:
+async def _execute_widget(widget: WidgetDef, prepare=None) -> dict:
     """Execute a single widget query and transform data (concurrency-limited)."""
     async with _widget_semaphore:
-        return await _execute_widget_inner(widget)
+        return await _execute_widget_inner(widget, prepare)
 
 
-async def _execute_widget_inner(widget: WidgetDef) -> dict:
+async def _execute_widget_inner(widget: WidgetDef, prepare=None) -> dict:
     """Execute a single widget query and transform data."""
     sql = widget.sql.strip()
+    params = None
+    if prepare is not None:
+        safety, params = prepare(sql)
+        if not safety.is_safe:
+            log.warning(f"[DASHBOARD] Widget {widget.id} refused: {safety.blocked_reason}")
+            return _error_widget(widget, safety.blocked_reason)
+        sql = safety.sql
     try:
-        data = await execute_query(sql)
+        data = await execute_query(sql, params) if params else await execute_query(sql)
     except Exception as e:
         log.warning(f"[DASHBOARD] SQL error for {widget.id}: {e}")
         return _error_widget(widget, str(e))

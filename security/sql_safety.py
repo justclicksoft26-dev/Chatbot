@@ -126,10 +126,13 @@ def _strip_string_literals(sql: str) -> str:
     return re.sub(r"'(?:[^']|'')*'", "''", sql)
 
 
-def validate_sql(sql: str) -> SafetyResult:
+def validate_sql(sql: str, masked_columns: list = None, max_rows: int = None) -> SafetyResult:
     """
     Validate SQL for safety before execution.
     Returns SafetyResult with cleaned SQL or blocked reason.
+
+    masked_columns: columns the caller's role may not read (query is blocked if it names one).
+    max_rows: row cap for this caller (never above MAX_ROWS).
     """
     warnings = []
     cleaned = _clean_sql(sql)
@@ -183,7 +186,7 @@ def validate_sql(sql: str) -> SafetyResult:
         warnings.append(f"Unknown tables accessed: {', '.join(unknown_tables)}")
 
     # ── Enforce row limit ──
-    cleaned = _enforce_row_limit(cleaned)
+    cleaned = _enforce_row_limit(cleaned, min(max_rows, MAX_ROWS) if max_rows else MAX_ROWS)
 
     # ── Neutralise bind variables (never inside string literals) ──
     cleaned, bind_vars = _replace_binds(cleaned)
@@ -197,11 +200,12 @@ def validate_sql(sql: str) -> SafetyResult:
     # ── AST-level structural validation ──
     try:
         from security.sql_ast import validate_sql_ast
-        ast_result = validate_sql_ast(cleaned)
+        ast_result = validate_sql_ast(cleaned, masked_columns=masked_columns or None)
         if not ast_result.is_valid:
             # AST found critical violations — block the query
             critical = [v for v in ast_result.violations
-                        if "CRITICAL" in v or "INJECTION" in v or "TABLE_VIOLATION" in v]
+                        if "CRITICAL" in v or "INJECTION" in v or "TABLE_VIOLATION" in v
+                        or "RBAC_VIOLATION" in v]
             if critical:
                 return SafetyResult(
                     is_safe=False,
@@ -503,17 +507,17 @@ def _extract_tables(sql: str) -> set[str]:
     return tables - cte_names(sql)
 
 
-def _enforce_row_limit(sql: str) -> str:
-    """Ensure FETCH FIRST N ROWS ONLY is present and within limits."""
+def _enforce_row_limit(sql: str, limit: int = MAX_ROWS) -> str:
+    """Ensure FETCH FIRST N ROWS ONLY is present and not above `limit`."""
     match = ROW_LIMIT_PATTERN.search(sql)
     if match:
         n = int(match.group(1))
-        if n > MAX_ROWS:
-            sql = ROW_LIMIT_PATTERN.sub(f"FETCH FIRST {MAX_ROWS} ROWS ONLY", sql)
+        if n > limit:
+            sql = ROW_LIMIT_PATTERN.sub(f"FETCH FIRST {limit} ROWS ONLY", sql)
     else:
         # Add row limit if not present
         sql = sql.rstrip()
-        sql += f"\nFETCH FIRST {MAX_ROWS} ROWS ONLY"
+        sql += f"\nFETCH FIRST {limit} ROWS ONLY"
     return sql
 
 

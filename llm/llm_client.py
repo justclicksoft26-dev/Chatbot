@@ -297,8 +297,8 @@ def generate_sql(schema_context: str, question: str, company_code: str,
 
 def _strip_tenant_filters(sql: str) -> str:
     """Remove COMPANY_CODE / FISCAL_YEAR conditions the LLM may generate."""
-    pattern = r"\s+AND\s+(?:\w+\.)?(?:COMPANY_CODE|FISCAL_YEAR)\s*=\s*(?:\d+|'[^']*')"
-    return re.sub(pattern, "", sql, flags=re.IGNORECASE)
+    from security.query_policy import strip_tenant_conditions
+    return strip_tenant_conditions(sql)
 
 
 # ══════════════════════════════════════════════════════════════════════
