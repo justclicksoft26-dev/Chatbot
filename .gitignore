@@ -23,3 +23,8 @@ tools/daily_progress.json
 tools/daily_results_latest.json
 # Local scratch
 result*.json
+
+# coverage output
+.coverage
+.coverage.*
+htmlcov/
