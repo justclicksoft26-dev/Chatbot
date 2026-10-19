@@ -1,0 +1,16 @@
+.git
+.github
+.venv
+__pycache__
+*.pyc
+*.log
+.env
+data
+tests
+uat/reports
+docs/archive
+archive
+f103.sql
+*.apex
+.coverage
+htmlcov

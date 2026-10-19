@@ -81,3 +81,21 @@ def test_test_data_is_not_gitignored():
     import subprocess
     out = subprocess.run(["git", "check-ignore", "tests/data/golden_justclick.py"], cwd=ROOT, capture_output=True)
     assert out.returncode == 1
+
+
+def test_deploy_files_keep_the_app_private_and_secrets_out():
+    dockerfile = (ROOT / "Dockerfile").read_text()
+    compose = (ROOT / "docker-compose.yml").read_text()
+    template = (ROOT / "deploy" / ".env.vps.example").read_text()
+    # the real client IP comes from the proxy, and the key in ?key= never reaches an access log
+    assert "--proxy-headers" in dockerfile and "--no-access-log" in dockerfile
+    # only Caddy is published; the application port is not
+    assert '"80:80"' in compose and '"443:443"' in compose and "8000:8000" not in compose
+    assert "reverse_proxy app:8000" in (ROOT / "deploy" / "Caddyfile").read_text()
+    # the template carries no secrets and every security variable is present
+    for name in ("API_KEY", "ADMIN_API_KEY", "CORS_ORIGINS", "ACTIONS_ENABLED"):
+        assert f"\n{name}=" in "\n" + template
+    for line in template.splitlines():
+        key, _, value = line.partition("=")
+        if key in {"API_KEY", "ADMIN_API_KEY", "DB_PASS", "DB_READ_PASS", "GEMINI_API_KEY", "GROQ_API_KEY", "DB_USER"}:
+            assert value.split("#")[0].strip() == "", f"{key} must be empty in the template"
