@@ -3,6 +3,8 @@ routers/exports.py — Data Export API
 Endpoints for exporting query results and reports in PDF, Excel, CSV, JSON formats.
 """
 import logging
+from urllib.parse import quote
+
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import Response
 from pydantic import BaseModel
@@ -22,6 +24,20 @@ from routers.schemas import ScopeValue
 log = logging.getLogger("routers.exports")
 
 router = APIRouter(prefix="/exports", tags=["exports"])
+
+
+def _download_headers(filename: str) -> dict:
+    """HTTP headers are latin-1; Arabic titles go through RFC 5987 (filename*) with an ASCII fallback."""
+    stem, _, ext = filename.rpartition(".")
+    if not stem:
+        stem, ext = filename, ""
+    ascii_stem = stem.encode("ascii", "ignore").decode().strip("_ .-")
+    ascii_name = (ascii_stem if ascii_stem and not ascii_stem[0].isdigit() else f"export_{ascii_stem}".rstrip("_")) \
+        + (f".{ext}" if ext else "")
+    return {
+        "Content-Disposition": f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(filename)}",
+        "X-Filename": quote(filename),
+    }
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -83,10 +99,7 @@ async def export_data(req: ExportDataRequest):
         return Response(
             content=content,
             media_type=media_type,
-            headers={
-                "Content-Disposition": f'attachment; filename="{filename}"',
-                "X-Filename": filename,
-            },
+            headers=_download_headers(filename),
         )
     except Exception as e:
         log.error(f"[EXPORT] Export failed: {e}")
@@ -157,10 +170,7 @@ async def generate_report(req: ExecutiveReportRequest, request: Request):
     return Response(
         content=content,
         media_type=media_type,
-        headers={
-            "Content-Disposition": f'attachment; filename="{filename}"',
-            "X-Filename": filename,
-        },
+        headers=_download_headers(filename),
     )
 
 

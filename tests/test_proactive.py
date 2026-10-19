@@ -231,3 +231,88 @@ def test_alert_endpoints_refuse_users_of_other_companies(client):
 
 def test_acknowledge_unknown_alert_is_404(client):
     assert client.post("/chat/alerts/acknowledge", json={"alert_id": "missing"}).status_code == 404
+
+
+# ── remaining monitor checks ──────────────────────────────────────────
+@pytest.mark.parametrize("count,severity", [(1, "info"), (3, "warning"), (10, "critical")])
+async def test_low_inventory_severity(rows, count, severity):
+    rows["rows"] = [{"LOW_COUNT": count}]
+    assert [a.severity for a in await monitor.check_low_inventory()] == [severity]
+    rows["rows"] = [{"LOW_COUNT": 0}]
+    assert await monitor.check_low_inventory() == []
+
+
+async def test_zero_stock_needs_at_least_five_items(rows):
+    rows["rows"] = [{"ZERO_COUNT": 4}]
+    assert await monitor.check_zero_stock() == []
+    rows["rows"] = [{"ZERO_COUNT": 5}]
+    assert (await monitor.check_zero_stock())[0].check_key == "zero_stock"
+
+
+async def test_customer_concentration(rows):
+    rows["rows"] = [{"CUST_NAME": "أ", "TOTAL_SALES": 700}, {"CUST_NAME": "ب", "TOTAL_SALES": 100},
+                    {"CUST_NAME": "ج", "TOTAL_SALES": 100}, {"CUST_NAME": "د", "TOTAL_SALES": 100}]
+    found = await monitor.check_customer_concentration()
+    assert found and "أ" in found[0].message
+    rows["rows"] = [{"CUST_NAME": str(i), "TOTAL_SALES": 100} for i in range(10)]
+    assert await monitor.check_customer_concentration() == []
+    rows["rows"] = [{"CUST_NAME": "أ", "TOTAL_SALES": 5}]                       # too few customers to judge
+    assert await monitor.check_customer_concentration() == []
+    rows["rows"] = [{"CUST_NAME": str(i), "TOTAL_SALES": 0} for i in range(4)]
+    assert await monitor.check_customer_concentration() == []
+
+
+async def test_expense_trend(rows):
+    rows["rows"] = [{"CURRENT_MONTH": 140, "PREV_MONTH": 100}]
+    assert (await monitor.check_expense_trend())[0].category == "accounting"
+    rows["rows"] = [{"CURRENT_MONTH": 110, "PREV_MONTH": 100}]
+    assert await monitor.check_expense_trend() == []
+    rows["rows"] = [{"CURRENT_MONTH": 0, "PREV_MONTH": 100}]
+    assert await monitor.check_expense_trend() == []
+
+
+@pytest.mark.parametrize("hour,row,key", [
+    (13, {"TODAY_SALES": 0, "TODAY_COUNT": 0, "YESTERDAY_SALES": 500}, "daily_no_sales"),
+    (15, {"TODAY_SALES": 100, "TODAY_COUNT": 2, "YESTERDAY_SALES": 500}, "daily_low_sales"),
+    (9, {"TODAY_SALES": 0, "TODAY_COUNT": 0, "YESTERDAY_SALES": 500}, None),        # too early to worry
+    (15, {"TODAY_SALES": 450, "TODAY_COUNT": 2, "YESTERDAY_SALES": 500}, None),
+    (15, {"TODAY_SALES": 0, "TODAY_COUNT": 0, "YESTERDAY_SALES": 0}, None),
+])
+async def test_daily_activity(rows, monkeypatch, hour, row, key):
+    import datetime
+    real = datetime.datetime
+
+    class Clock(real):
+        @classmethod
+        def now(cls, tz=None):
+            return real(2025, 1, 1, hour)
+
+    monkeypatch.setattr(datetime, "datetime", Clock)
+    rows["rows"] = [row]
+    assert [a.check_key for a in await monitor.check_daily_activity()] == ([key] if key else [])
+
+
+async def test_database_errors_in_a_check_mean_no_alerts(monkeypatch):
+    async def boom(sql, params=None):
+        raise RuntimeError("db down")
+    monkeypatch.setattr(monitor, "execute_query", boom)
+    for check in monitor.ALL_CHECKS:
+        assert await check() == []
+
+
+async def test_monitor_can_be_started_and_stopped(monkeypatch):
+    import asyncio
+    monkeypatch.setattr(monitor, "_monitor_task", None)
+    started = []
+
+    async def loop(interval):
+        started.append(interval)
+        await asyncio.sleep(30)
+
+    monkeypatch.setattr(monitor, "_monitor_loop", loop)
+    task = monitor.start_monitor(interval=60)
+    await asyncio.sleep(0)
+    assert monitor.start_monitor(interval=60) is task and started == [60]       # no second loop
+    monitor.stop_monitor()
+    await asyncio.sleep(0)
+    assert task.cancelled() or task.done()
