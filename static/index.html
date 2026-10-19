@@ -1,0 +1,3424 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>JustClick AI Copilot — المستشار التنفيذي الذكي</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:            oklch(0.965 0.005 250);
+      --surface:       oklch(0.995 0.002 250);
+      --surface2:      oklch(0.94 0.006 250);
+      --border:        oklch(0.90 0.008 250);
+      --border-strong: oklch(0.84 0.010 250);
+      --accent:        oklch(0.52 0.20 260);
+      --accent-soft:   oklch(0.52 0.20 260 / 0.08);
+      --accent-hover:  oklch(0.47 0.22 260);
+      --accent-glow:   oklch(0.52 0.20 260 / 0.15);
+      --text:          oklch(0.16 0.012 250);
+      --text-mid:      oklch(0.40 0.008 250);
+      --text-dim:      oklch(0.55 0.007 250);
+      --green:         oklch(0.58 0.16 155);
+      --green-soft:    oklch(0.58 0.16 155 / 0.10);
+      --red:           oklch(0.55 0.19 25);
+      --red-soft:      oklch(0.55 0.19 25 / 0.08);
+      --amber:         oklch(0.65 0.15 70);
+      --amber-soft:    oklch(0.65 0.15 70 / 0.10);
+      --purple:        oklch(0.52 0.16 310);
+      --purple-soft:   oklch(0.52 0.16 310 / 0.10);
+      --teal:          oklch(0.54 0.13 195);
+      --teal-soft:     oklch(0.54 0.13 195 / 0.10);
+      --radius:        10px;
+      --radius-lg:     14px;
+      --radius-xl:     18px;
+      --shadow-sm:     0 1px 3px oklch(0 0 0 / 0.04);
+      --shadow:        0 4px 16px oklch(0 0 0 / 0.06);
+      --shadow-lg:     0 8px 32px oklch(0 0 0 / 0.08);
+      --font:          "Segoe UI", "SF Arabic", system-ui, -apple-system, sans-serif;
+      --mono:          "Cascadia Code", "Fira Code", "Consolas", monospace;
+      --ease-out:      cubic-bezier(0.16, 1, 0.3, 1);
+      --ease-spring:   cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
+
+    body {
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--text);
+      height: 100dvh;
+      overflow: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ── Layout ─────────────────────────────── */
+    .app {
+      display: flex;
+      flex-direction: column;
+      height: 100dvh;
+    }
+
+    /* ── Header ─────────────────────────────── */
+    .header {
+      display: flex;
+      align-items: center;
+      padding: 0 28px;
+      height: 56px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .header-brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .brand-icon {
+      width: 34px;
+      height: 34px;
+      background: linear-gradient(135deg, oklch(0.52 0.20 260), oklch(0.45 0.22 280));
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 2px 8px oklch(0.52 0.20 260 / 0.25);
+      transition: transform 0.3s var(--ease-out);
+    }
+
+    .brand-icon:hover { transform: scale(1.05); }
+    .brand-icon svg { width: 20px; height: 20px; fill: white; }
+
+    .brand-text { display: flex; flex-direction: column; gap: 1px; }
+
+    .brand-name {
+      font-size: 15px;
+      font-weight: 800;
+      color: var(--text);
+      letter-spacing: -0.03em;
+      line-height: 1.1;
+    }
+
+    .brand-sub {
+      font-size: 11px;
+      color: var(--text-dim);
+      font-weight: 500;
+    }
+
+    .header-end {
+      margin-right: auto;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .header-chip {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding: 5px 12px;
+      font-size: 11.5px;
+      font-weight: 600;
+      border-radius: 20px;
+      background: var(--surface2);
+      color: var(--text-mid);
+      border: 1px solid var(--border);
+      transition: all 0.2s var(--ease-out);
+    }
+
+    .clear-memory-btn { cursor: pointer; }
+
+    .clear-memory-btn:hover {
+      border-color: var(--red);
+      color: var(--red);
+      background: var(--red-soft);
+    }
+
+    .train-btn { cursor: pointer; }
+    .train-btn:hover {
+      border-color: oklch(0.62 0.15 155);
+      color: oklch(0.62 0.15 155);
+      background: oklch(0.62 0.15 155 / 0.1);
+    }
+
+    /* ── Training Modal ─────────────────────────────────────────── */
+    #train-modal-overlay {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      width: 100vw; height: 100vh;
+      background: rgba(255,255,255,0.85);
+      z-index: 9999;
+      align-items: center;
+      justify-content: center;
+    }
+    #train-modal-overlay.open { display: flex; }
+    .train-modal {
+      background: var(--surface1);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 24px;
+      width: 460px;
+      max-width: calc(100vw - 32px);
+      max-height: 90vh;
+      overflow-y: auto;
+      box-shadow: 0 24px 80px rgba(0,0,0,0.5);
+      position: relative;
+      z-index: 10000;
+      direction: rtl;
+    }
+    .train-modal-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 20px;
+      padding-bottom: 14px;
+      border-bottom: 1px solid var(--border);
+    }
+    .train-modal-header h3 {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text-hi);
+      margin: 0;
+      flex: 1;
+    }
+    .train-modal-close {
+      background: none;
+      border: none;
+      color: var(--text-mid);
+      cursor: pointer;
+      padding: 4px;
+      border-radius: 6px;
+      font-size: 18px;
+      line-height: 1;
+      transition: color 0.15s;
+    }
+    .train-modal-close:hover { color: var(--text-hi); }
+    .train-field { margin-bottom: 16px; }
+    .train-field label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-mid);
+      margin-bottom: 6px;
+    }
+    .train-field label span { color: oklch(0.65 0.18 25); margin-right: 2px; }
+    .train-field input,
+    .train-field textarea {
+      width: 100%;
+      box-sizing: border-box;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text-hi);
+      font-size: 13px;
+      padding: 9px 12px;
+      outline: none;
+      transition: border-color 0.15s;
+      font-family: inherit;
+      resize: vertical;
+    }
+    .train-field input:focus,
+    .train-field textarea:focus { border-color: oklch(0.62 0.15 155); }
+    .train-field textarea {
+      min-height: 90px;
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      direction: ltr;
+      text-align: left;
+    }
+    .train-modal-actions {
+      display: flex;
+      gap: 10px;
+      justify-content: flex-end;
+      margin-top: 20px;
+      padding-top: 16px;
+      border-top: 1px solid var(--border);
+    }
+    .train-submit-btn {
+      display: flex; align-items: center; gap: 6px;
+      padding: 9px 20px;
+      background: oklch(0.62 0.15 155);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+    .train-submit-btn:hover { opacity: 0.88; }
+    .train-submit-btn:disabled { opacity: 0.45; cursor: default; }
+    .train-cancel-btn {
+      padding: 9px 16px;
+      background: transparent;
+      color: var(--text-mid);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 13px;
+      cursor: pointer;
+      transition: border-color 0.15s;
+    }
+    .train-cancel-btn:hover { border-color: var(--text-mid); }
+    .train-spinner {
+      width: 14px; height: 14px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      display: none;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .status-dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 6px var(--green);
+      animation: statusPulse 3s ease-in-out infinite;
+    }
+
+    @keyframes statusPulse {
+      0%, 100% { box-shadow: 0 0 6px var(--green); }
+      50% { box-shadow: 0 0 12px var(--green), 0 0 4px var(--green); }
+    }
+
+    /* ── Chat area ──────────────────────────── */
+    .chat-area {
+      flex: 1;
+      overflow-y: auto;
+      padding: 28px 32px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      scroll-behavior: smooth;
+    }
+
+    .chat-area::-webkit-scrollbar { width: 6px; }
+    .chat-area::-webkit-scrollbar-track { background: transparent; }
+    .chat-area::-webkit-scrollbar-thumb { background: oklch(0.85 0.005 250); border-radius: 3px; }
+
+    /* ── Empty state (Copilot welcome) ─────── */
+    .empty-state {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      text-align: center;
+      padding: 48px 24px;
+      animation: fadeInUp 0.6s var(--ease-out) both;
+    }
+
+    @keyframes fadeInUp {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .copilot-avatar {
+      width: 68px;
+      height: 68px;
+      background: linear-gradient(135deg, oklch(0.52 0.20 260), oklch(0.45 0.22 280));
+      border-radius: 22px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 8px 32px oklch(0.52 0.20 260 / 0.3);
+      animation: float 4s ease-in-out infinite;
+      position: relative;
+    }
+
+    .copilot-avatar::after {
+      content: '';
+      position: absolute;
+      inset: -3px;
+      border-radius: 24px;
+      background: linear-gradient(135deg, oklch(0.52 0.20 260 / 0.3), oklch(0.45 0.22 280 / 0.1));
+      z-index: -1;
+      animation: avatarGlow 4s ease-in-out infinite alternate;
+    }
+
+    @keyframes avatarGlow {
+      0% { opacity: 0.5; transform: scale(1); }
+      100% { opacity: 1; transform: scale(1.05); }
+    }
+
+    .copilot-avatar svg { width: 32px; height: 32px; fill: white; }
+
+    @keyframes float {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-5px); }
+    }
+
+    .empty-title {
+      font-size: 22px;
+      font-weight: 800;
+      color: var(--text);
+      letter-spacing: -0.02em;
+    }
+
+    .empty-sub {
+      font-size: 14.5px;
+      color: var(--text-dim);
+      max-width: 48ch;
+      line-height: 1.7;
+    }
+
+    .suggestions {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 10px;
+      margin-top: 20px;
+    }
+
+    .suggestion {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      padding: 10px 20px;
+      font-size: 13.5px;
+      font-weight: 600;
+      color: var(--text-mid);
+      cursor: pointer;
+      transition: all 0.25s var(--ease-out);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .suggestion::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(135deg, var(--accent-soft), transparent);
+      opacity: 0;
+      transition: opacity 0.25s ease;
+    }
+
+    .suggestion:hover::before { opacity: 1; }
+
+    .suggestion:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px var(--accent-glow);
+    }
+
+    .suggestion:active { transform: scale(0.97) translateY(0); }
+
+    /* ── Messages ───────────────────────────── */
+    .msg-row {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      animation: msgIn 0.45s var(--ease-out) both;
+    }
+
+    @keyframes msgIn {
+      from { opacity: 0; transform: translateY(14px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .msg-user {
+      align-self: flex-start;
+      background: oklch(0.92 0.035 260);
+      color: var(--text);
+      padding: 14px 20px;
+      border-radius: 16px 16px 4px 16px;
+      max-width: 72%;
+      font-size: 14.5px;
+      line-height: 1.7;
+      font-weight: 500;
+      transition: box-shadow 0.2s ease;
+    }
+
+    .msg-user:hover { box-shadow: 0 2px 12px oklch(0.52 0.20 260 / 0.08); }
+
+    .msg-bot {
+      align-self: flex-end;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      padding: 20px 24px;
+      border-radius: 16px 16px 16px 4px;
+      max-width: 85%;
+      font-size: 14px;
+      line-height: 1.8;
+      box-shadow: var(--shadow-sm);
+      transition: box-shadow 0.3s ease;
+    }
+
+    .msg-bot:hover { box-shadow: var(--shadow); }
+
+    .msg-bot.has-widgets {
+      max-width: 96%;
+      width: 96%;
+    }
+
+    .msg-bot-content { word-wrap: break-word; }
+    .msg-bot-content p:first-child { margin-top: 0; }
+    .msg-bot-content p:last-child { margin-bottom: 0; }
+
+    /* Streaming text effect */
+    .msg-bot-content.streaming .stream-word {
+      opacity: 0;
+      animation: wordReveal 0.15s ease forwards;
+    }
+
+    @keyframes wordReveal {
+      from { opacity: 0; filter: blur(2px); }
+      to { opacity: 1; filter: blur(0); }
+    }
+
+    /* ── SSE Streaming Stages ─────────────────── */
+    .sse-stages {
+      padding: 8px 12px;
+      font-size: 0.82rem;
+      color: var(--muted);
+    }
+    .sse-stage-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 0;
+      transition: opacity 0.3s;
+    }
+    .sse-stage-item.completed { color: var(--accent); opacity: 0.7; }
+    .sse-stage-item.running { color: var(--text); font-weight: 600; }
+    .sse-stage-item .stage-icon { font-size: 0.75rem; width: 14px; text-align: center; }
+    .sse-stage-item.running .stage-icon { animation: spin 1s linear infinite; }
+    @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+    /* ── Rendered markdown ──────────────────── */
+    .md-p { margin: 6px 0; line-height: 1.85; }
+    .md-p strong { color: var(--text); font-weight: 700; }
+
+    .md-h3 {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text);
+      margin: 16px 0 8px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .md-h4 {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text);
+      margin: 12px 0 6px;
+    }
+
+    .md-list {
+      margin: 8px 0;
+      padding-right: 6px;
+      list-style: none;
+    }
+
+    .md-list li {
+      position: relative;
+      padding: 5px 20px 5px 0;
+      line-height: 1.75;
+      font-size: 13.5px;
+    }
+
+    .md-list li::before {
+      content: '';
+      position: absolute;
+      right: 0;
+      top: 14px;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+    }
+
+    .md-olist {
+      margin: 8px 0;
+      padding-right: 6px;
+      list-style: none;
+      counter-reset: md-ol;
+    }
+
+    .md-olist li {
+      position: relative;
+      padding: 5px 30px 5px 0;
+      line-height: 1.75;
+      font-size: 13.5px;
+      counter-increment: md-ol;
+    }
+
+    .md-olist li::before {
+      content: counter(md-ol);
+      position: absolute;
+      right: 0;
+      top: 6px;
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-size: 11px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .md-card {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 6px 18px;
+      margin: 12px 0;
+    }
+
+    .md-card-field {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 11px 0;
+      border-bottom: 1px solid oklch(0.94 0.004 250);
+      gap: 12px;
+    }
+
+    .md-card-field:last-child { border-bottom: none; }
+
+    .md-card-label {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-mid);
+      flex-shrink: 0;
+    }
+
+    .md-card-value {
+      font-size: 14.5px;
+      font-weight: 700;
+      color: var(--text);
+      font-variant-numeric: tabular-nums;
+      text-align: left;
+      direction: ltr;
+    }
+
+    .md-card-value.text-val {
+      direction: rtl;
+      text-align: right;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .md-table-wrap {
+      margin: 12px 0;
+      overflow-x: auto;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+    }
+
+    .md-hr {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 14px 0;
+    }
+
+    .md-summary {
+      margin: 6px 0 0;
+      padding: 12px 16px;
+      background: linear-gradient(135deg, var(--accent-soft), oklch(0.52 0.16 310 / 0.05));
+      border-radius: var(--radius);
+      font-size: 13.5px;
+      line-height: 1.8;
+      color: var(--text);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .md-summary::before {
+      content: '';
+      position: absolute;
+      right: 0;
+      top: 0;
+      bottom: 0;
+      width: 3px;
+      background: var(--accent);
+      border-radius: 0 3px 3px 0;
+    }
+
+    .msg-error {
+      background: var(--red-soft);
+      border: 1px solid oklch(0.55 0.19 25 / 0.12);
+      color: var(--red);
+      padding: 14px 20px;
+      border-radius: var(--radius-lg);
+      font-size: 13.5px;
+    }
+
+    /* ── Copilot Insight Blocks ────────────── */
+    .copilot-insights {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin: 14px 0 6px;
+    }
+
+    .copilot-insight {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 11px 15px;
+      border-radius: 9px;
+      font-size: 13px;
+      line-height: 1.7;
+      animation: insightIn 0.45s var(--ease-out) both;
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .copilot-insight:hover {
+      transform: translateX(-2px);
+      box-shadow: 0 2px 8px oklch(0 0 0 / 0.04);
+    }
+
+    .copilot-insight.positive {
+      background: var(--green-soft);
+      color: oklch(0.35 0.10 155);
+    }
+
+    .copilot-insight.warning {
+      background: var(--amber-soft);
+      color: oklch(0.35 0.12 70);
+    }
+
+    .copilot-insight.info {
+      background: var(--accent-soft);
+      color: oklch(0.35 0.12 260);
+    }
+
+    .copilot-insight.neutral {
+      background: var(--surface2);
+      color: var(--text-mid);
+    }
+
+    .insight-icon {
+      flex-shrink: 0;
+      width: 20px;
+      height: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+    }
+
+    @keyframes insightIn {
+      from { opacity: 0; transform: translateX(10px); }
+      to { opacity: 1; transform: translateX(0); }
+    }
+
+    /* ── ERP Operator: Action Cards ──────── */
+    .action-card {
+      margin-top: 14px;
+      border-radius: var(--radius-lg);
+      padding: 16px 20px;
+      animation: cardSlideIn 0.4s var(--ease-out) forwards;
+    }
+    @keyframes cardSlideIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .action-confirm {
+      background: oklch(0.97 0.015 260 / 0.6);
+      border: 1.5px solid oklch(0.52 0.20 260 / 0.25);
+    }
+    .action-result.success {
+      background: var(--green-soft);
+      border: 1.5px solid oklch(0.58 0.16 155 / 0.3);
+    }
+    .action-result.error {
+      background: var(--red-soft);
+      border: 1.5px solid oklch(0.55 0.19 25 / 0.3);
+    }
+    .action-card-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    .action-icon { font-size: 18px; }
+    .action-title {
+      font-weight: 600;
+      font-size: 14px;
+      color: var(--text);
+    }
+    .action-risk {
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 20px;
+      font-weight: 500;
+    }
+    .risk-high { background: var(--red-soft); color: var(--red); }
+    .risk-medium { background: var(--amber-soft); color: var(--amber); }
+    .risk-low { background: var(--green-soft); color: var(--green); }
+    .action-desc {
+      font-size: 13px;
+      color: var(--text-mid);
+      margin-bottom: 10px;
+      line-height: 1.5;
+    }
+    .action-params {
+      display: grid;
+      gap: 6px;
+      margin-bottom: 12px;
+      padding: 10px 12px;
+      background: var(--surface);
+      border-radius: var(--radius);
+    }
+    .action-param {
+      font-size: 13px;
+      color: var(--text);
+    }
+    .action-param span {
+      color: var(--text-dim);
+      font-weight: 500;
+    }
+    .action-warnings {
+      margin-bottom: 12px;
+    }
+    .action-warning {
+      font-size: 12px;
+      color: var(--amber);
+      padding: 4px 0;
+    }
+    .action-buttons {
+      display: flex;
+      gap: 10px;
+      margin-top: 6px;
+    }
+    .action-btn {
+      padding: 8px 18px;
+      border-radius: var(--radius);
+      border: none;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: var(--font);
+      transition: all 0.2s var(--ease-out);
+    }
+    .action-btn.confirm {
+      background: var(--accent);
+      color: white;
+    }
+    .action-btn.confirm:hover {
+      background: var(--accent-hover);
+      transform: translateY(-1px);
+    }
+    .action-btn.cancel {
+      background: var(--surface2);
+      color: var(--text-mid);
+      border: 1px solid var(--border);
+    }
+    .action-btn.cancel:hover {
+      background: var(--red-soft);
+      color: var(--red);
+      border-color: oklch(0.55 0.19 25 / 0.3);
+    }
+    .action-result-header {
+      font-weight: 600;
+      font-size: 14px;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .action-status-icon { font-size: 16px; }
+    .action-detail {
+      font-size: 13px;
+      color: var(--text-mid);
+      margin-top: 4px;
+    }
+
+    /* ── ERP Operator: Navigation Links ──── */
+    .nav-links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 14px;
+    }
+    .nav-link-card {
+      display: flex;
+      flex-direction: column;
+      padding: 10px 16px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      text-decoration: none;
+      transition: all 0.2s var(--ease-out);
+      min-width: 120px;
+    }
+    .nav-link-card:hover {
+      border-color: var(--accent);
+      background: var(--accent-soft);
+      transform: translateY(-2px);
+      box-shadow: var(--shadow-sm);
+    }
+    .nav-link-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .nav-link-sub {
+      font-size: 11px;
+      color: var(--text-dim);
+      margin-top: 2px;
+    }
+
+    /* ── ERP Operator: Export Bar ────────── */
+    .export-bar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-top: 12px;
+      padding: 10px 14px;
+      background: var(--teal-soft);
+      border: 1px solid oklch(0.54 0.13 195 / 0.2);
+      border-radius: var(--radius);
+    }
+    .export-msg {
+      font-size: 12px;
+      color: var(--teal);
+      flex: 1;
+    }
+    .export-btn {
+      padding: 6px 14px;
+      border-radius: var(--radius);
+      border: 1px solid var(--teal);
+      background: transparent;
+      color: var(--teal);
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: var(--font);
+      transition: all 0.2s var(--ease-out);
+    }
+    .export-btn:hover {
+      background: var(--teal);
+      color: white;
+    }
+
+    /* ── Follow-up Suggestion Chips ───────── */
+    .suggestion-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 14px;
+      padding-top: 14px;
+      border-top: 1px solid var(--border);
+    }
+
+    .suggestion-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 16px;
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--accent);
+      background: var(--accent-soft);
+      border: 1px solid oklch(0.52 0.20 260 / 0.15);
+      border-radius: 20px;
+      cursor: pointer;
+      transition: all 0.25s var(--ease-out);
+      animation: chipIn 0.4s var(--ease-out) both;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .suggestion-chip::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(135deg, oklch(0.52 0.20 260 / 0.08), transparent);
+      opacity: 0;
+      transition: opacity 0.2s ease;
+    }
+
+    .suggestion-chip:hover::before { opacity: 1; }
+
+    .suggestion-chip:nth-child(1) { animation-delay: 0.08s; }
+    .suggestion-chip:nth-child(2) { animation-delay: 0.16s; }
+    .suggestion-chip:nth-child(3) { animation-delay: 0.24s; }
+    .suggestion-chip:nth-child(4) { animation-delay: 0.32s; }
+
+    .suggestion-chip:hover {
+      background: oklch(0.52 0.20 260 / 0.15);
+      border-color: var(--accent);
+      transform: translateY(-2px);
+      box-shadow: 0 4px 16px var(--accent-glow);
+    }
+
+    .suggestion-chip:active { transform: scale(0.96) translateY(0); }
+
+    .chip-icon { font-size: 14px; }
+
+    @keyframes chipIn {
+      from { opacity: 0; transform: translateY(8px) scale(0.92); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    /* ── Message meta ───────────────────────── */
+    .msg-meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 10px;
+      flex-wrap: wrap;
+    }
+
+    .msg-time { font-size: 11px; color: var(--text-dim); }
+    .msg-rows { font-size: 11px; font-weight: 600; color: var(--accent); }
+    .msg-exec-time { font-size: 11px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+
+    .method-badge {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 3px 9px;
+      border-radius: 10px;
+      letter-spacing: 0.02em;
+    }
+
+    .method-badge.template   { background: var(--green-soft);  color: var(--green); }
+    .method-badge.llm        { background: var(--accent-soft); color: var(--accent); }
+    .method-badge.greeting,
+    .method-badge.help       { background: var(--amber-soft);  color: var(--amber); }
+    .method-badge.dashboard  { background: var(--teal-soft);   color: var(--teal); }
+    .method-badge.action     { background: var(--purple-soft); color: var(--purple); }
+    .method-badge.workflow   { background: var(--amber-soft);  color: var(--amber); }
+    .method-badge.report     { background: var(--accent-soft); color: var(--accent); }
+    .method-badge.navigation { background: var(--teal-soft);   color: var(--teal); }
+
+    /* ── SQL toggle ─────────────────────────── */
+    .sql-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 10px;
+      font-size: 12px;
+      color: var(--text-dim);
+      cursor: pointer;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: none;
+      transition: all 0.15s ease;
+    }
+
+    .sql-toggle:hover { border-color: var(--accent); color: var(--accent); }
+    .sql-toggle svg { width: 14px; height: 14px; transition: transform 0.2s ease; }
+    .sql-toggle.open svg { transform: rotate(90deg); }
+
+    .sql-block {
+      margin-top: 8px;
+      max-height: 0;
+      overflow: hidden;
+      transition: max-height 0.3s ease;
+    }
+
+    .sql-block.open { max-height: 400px; overflow-y: auto; }
+
+    .sql-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 6px 12px;
+      background: oklch(0.22 0.020 260);
+      color: oklch(0.75 0.010 250);
+      border-radius: 8px 8px 0 0;
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    .copy-btn {
+      background: none;
+      border: 1px solid oklch(1 0 0 / 0.15);
+      color: oklch(0.70 0.008 250);
+      padding: 2px 10px;
+      font-size: 11px;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+
+    .copy-btn:hover { background: oklch(1 0 0 / 0.08); }
+
+    .sql-code {
+      background: oklch(0.18 0.018 260);
+      color: oklch(0.82 0.010 250);
+      padding: 14px;
+      font-family: var(--mono);
+      font-size: 12.5px;
+      line-height: 1.65;
+      border-radius: 0 0 8px 8px;
+      direction: ltr;
+      text-align: left;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    /* ── Standalone chat chart ──────────────── */
+    .chat-chart-container {
+      margin: 12px 0 6px;
+      max-height: 300px;
+      border-radius: 10px;
+      background: oklch(0.985 0.002 250);
+      padding: 14px;
+      border: 1px solid var(--border);
+      animation: chartReveal 0.5s var(--ease-out) both;
+      animation-delay: 0.2s;
+    }
+
+    @keyframes chartReveal {
+      from { opacity: 0; transform: scale(0.97); }
+      to { opacity: 1; transform: scale(1); }
+    }
+
+    /* ── Inline widgets ────────────────────── */
+    .msg-widgets {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      margin: 16px 0 10px;
+    }
+
+    .msg-widgets .w-sm { grid-column: span 1; }
+    .msg-widgets .w-md { grid-column: span 2; }
+    .msg-widgets .w-lg { grid-column: span 4; }
+
+    .inline-kpi {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      transition: all 0.25s var(--ease-out);
+    }
+
+    .inline-kpi:hover {
+      box-shadow: var(--shadow);
+      transform: translateY(-2px);
+      border-color: var(--border-strong);
+    }
+
+    .inline-kpi-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .inline-kpi-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-dim);
+    }
+
+    .inline-kpi-icon {
+      width: 34px; height: 34px;
+      border-radius: 9px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .inline-kpi-icon svg { width: 18px; height: 18px; }
+    .inline-kpi-icon.blue   { background: var(--accent-soft); color: var(--accent); }
+    .inline-kpi-icon.green  { background: var(--green-soft);  color: var(--green); }
+    .inline-kpi-icon.red    { background: var(--red-soft);    color: var(--red); }
+    .inline-kpi-icon.amber  { background: var(--amber-soft);  color: var(--amber); }
+    .inline-kpi-icon.purple { background: var(--purple-soft); color: var(--purple); }
+    .inline-kpi-icon.teal   { background: var(--teal-soft);   color: var(--teal); }
+
+    .inline-kpi-value {
+      font-size: 26px;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      color: var(--text);
+      line-height: 1.1;
+    }
+
+    .inline-kpi-desc {
+      font-size: 11px;
+      color: var(--text-dim);
+    }
+
+    .inline-chart {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      transition: all 0.25s var(--ease-out);
+    }
+
+    .inline-chart:hover { box-shadow: var(--shadow); transform: translateY(-2px); }
+
+    .inline-chart-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 10px;
+    }
+
+    .inline-chart-wrap {
+      min-height: 200px;
+      max-height: 280px;
+      position: relative;
+    }
+
+    .inline-chart-wrap canvas { width: 100% !important; height: 100% !important; }
+
+    .inline-table {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 16px;
+      overflow: hidden;
+      transition: all 0.25s var(--ease-out);
+    }
+
+    .inline-table:hover { box-shadow: var(--shadow); }
+
+    .inline-table-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 10px;
+    }
+
+    .inline-table-wrap {
+      overflow-x: auto;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+    }
+
+    .data-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12.5px;
+    }
+
+    .data-table th {
+      background: var(--surface2);
+      font-weight: 700;
+      font-size: 11.5px;
+      color: var(--text-mid);
+      padding: 9px 14px;
+      text-align: right;
+      white-space: nowrap;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .data-table td {
+      padding: 8px 14px;
+      border-bottom: 1px solid oklch(0.94 0.004 250);
+      white-space: nowrap;
+      color: var(--text);
+    }
+
+    .data-table tbody tr:nth-child(even) td { background: oklch(0.975 0.003 250); }
+    .data-table tr:last-child td { border-bottom: none; }
+    .data-table tr:hover td { background: oklch(0.95 0.008 260); }
+
+    .data-table td.num {
+      font-variant-numeric: tabular-nums;
+      font-weight: 600;
+      direction: ltr;
+      text-align: left;
+    }
+
+    .inline-error {
+      background: var(--red-soft);
+      border: 1px solid oklch(0.55 0.19 25 / 0.12);
+      border-radius: var(--radius);
+      padding: 14px;
+      color: var(--red);
+      font-size: 12px;
+      text-align: center;
+    }
+
+    .csv-export-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 5px 12px;
+      margin-top: 10px;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-dim);
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .csv-export-btn:hover {
+      border-color: var(--green);
+      color: var(--green);
+      background: var(--green-soft);
+    }
+
+    .csv-export-btn svg { width: 12px; height: 12px; }
+
+    /* ── Input area ─────────────────────────── */
+    .input-area {
+      padding: 16px 28px 12px;
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .input-row {
+      display: flex;
+      align-items: flex-end;
+      gap: 10px;
+      background: var(--bg);
+      border: 1.5px solid var(--border);
+      border-radius: 16px;
+      padding: 10px 16px;
+      transition: all 0.25s var(--ease-out);
+      max-width: 880px;
+      margin: 0 auto;
+    }
+
+    .input-row:focus-within {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 4px var(--accent-soft), 0 4px 20px oklch(0.52 0.20 260 / 0.06);
+    }
+
+    .input-row textarea {
+      flex: 1;
+      border: none;
+      background: none;
+      font-family: var(--font);
+      font-size: 14.5px;
+      resize: none;
+      line-height: 1.5;
+      color: var(--text);
+      outline: none;
+      max-height: 120px;
+      min-height: 22px;
+    }
+
+    .input-row textarea::placeholder { color: var(--text-dim); }
+
+    .send-btn {
+      width: 40px; height: 40px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-hover));
+      border: none;
+      border-radius: 12px;
+      color: oklch(0.98 0 0);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      transition: all 0.25s var(--ease-out);
+      box-shadow: 0 2px 8px oklch(0.52 0.20 260 / 0.25);
+    }
+
+    .send-btn:hover { transform: translateY(-1px) scale(1.03); box-shadow: 0 4px 20px oklch(0.52 0.20 260 / 0.35); }
+    .send-btn:active { transform: scale(0.93); }
+    .send-btn:disabled { opacity: 0.4; cursor: default; transform: none; box-shadow: none; }
+    .send-btn svg { width: 20px; height: 20px; }
+
+    .input-hint {
+      text-align: center;
+      font-size: 11px;
+      color: var(--text-dim);
+      margin-top: 8px;
+    }
+
+    /* ── Loading (Copilot thinking) ────────── */
+    .loading-indicator {
+      align-self: flex-end;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 18px 24px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      animation: msgIn 0.3s var(--ease-out) both;
+    }
+
+    .loading-avatar {
+      width: 28px;
+      height: 28px;
+      background: linear-gradient(135deg, oklch(0.52 0.20 260), oklch(0.45 0.22 280));
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      animation: thinkPulse 1.5s ease-in-out infinite;
+    }
+
+    .loading-avatar svg { width: 14px; height: 14px; fill: white; }
+
+    @keyframes thinkPulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.7; transform: scale(0.95); }
+    }
+
+    .loading-content {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .loading-text {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-mid);
+    }
+
+    .loading-sub {
+      font-size: 11px;
+      color: var(--text-dim);
+      animation: loadingPhase 4s ease-in-out infinite;
+    }
+
+    @keyframes loadingPhase {
+      0%, 25% { content: "يقرأ السياق..."; }
+      25%, 50% { opacity: 0.7; }
+      50%, 75% { opacity: 1; }
+      75%, 100% { opacity: 0.7; }
+    }
+
+    .loading-dots {
+      display: flex;
+      gap: 4px;
+      align-items: center;
+    }
+
+    .loading-dots span {
+      width: 6px; height: 6px;
+      background: var(--accent);
+      border-radius: 50%;
+      animation: dotPulse 1.4s ease-in-out infinite;
+    }
+
+    .loading-dots span:nth-child(2) { animation-delay: 0.2s; }
+    .loading-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+    @keyframes dotPulse {
+      0%, 80%, 100% { opacity: 0.25; transform: scale(0.75); }
+      40% { opacity: 1; transform: scale(1.1); }
+    }
+
+    /* ── Toast ──────────────────────────────── */
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%) translateY(60px);
+      background: oklch(0.20 0.020 260);
+      color: oklch(0.92 0.005 250);
+      padding: 12px 28px;
+      border-radius: 12px;
+      font-size: 13px;
+      font-weight: 600;
+      opacity: 0;
+      transition: all 0.35s var(--ease-out);
+      z-index: 100;
+      box-shadow: var(--shadow-lg);
+    }
+
+    .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+    /* ── Widget enter animation ─────────────── */
+    .widget-enter {
+      opacity: 0;
+      transform: translateY(10px);
+      animation: widgetIn 0.5s var(--ease-out) forwards;
+    }
+
+    @keyframes widgetIn { to { opacity: 1; transform: translateY(0); } }
+
+    /* ── Responsive ─────────────────────────── */
+    @media (max-width: 768px) {
+      .chat-area { padding: 16px; }
+      .msg-user { max-width: 90%; }
+      .msg-bot { max-width: 95%; padding: 16px 18px; }
+      .msg-bot.has-widgets { max-width: 100%; width: 100%; }
+      .msg-widgets { grid-template-columns: repeat(2, 1fr); }
+      .msg-widgets .w-md { grid-column: span 2; }
+      .msg-widgets .w-lg { grid-column: span 2; }
+      .input-area { padding: 10px 12px 8px; }
+      .suggestion-chips { gap: 6px; }
+      .suggestion-chip { padding: 7px 12px; font-size: 12px; }
+    }
+
+    @media (max-width: 480px) {
+      .msg-widgets { grid-template-columns: 1fr; }
+      .msg-widgets .w-sm,
+      .msg-widgets .w-md,
+      .msg-widgets .w-lg { grid-column: span 1; }
+      .inline-kpi-value { font-size: 22px; }
+      .empty-title { font-size: 18px; }
+    }
+
+    /* ── Alert Center ──────────────────────── */
+    .alert-bell {
+      position: relative;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--surface2);
+      transition: all 0.25s var(--ease-out);
+      flex-shrink: 0;
+    }
+
+    .alert-bell:hover {
+      border-color: var(--accent);
+      background: var(--accent-soft);
+    }
+
+    .alert-bell svg {
+      width: 18px;
+      height: 18px;
+      stroke: var(--text-mid);
+      fill: none;
+      stroke-width: 2;
+      transition: stroke 0.2s ease;
+    }
+
+    .alert-bell:hover svg { stroke: var(--accent); }
+
+    .alert-bell.has-alerts svg {
+      stroke: var(--amber);
+      animation: bellRing 2s ease-in-out infinite;
+    }
+
+    .alert-bell.has-critical svg { stroke: var(--red); }
+
+    @keyframes bellRing {
+      0%, 80%, 100% { transform: rotate(0); }
+      5%, 15% { transform: rotate(8deg); }
+      10%, 20% { transform: rotate(-8deg); }
+    }
+
+    .alert-badge {
+      position: absolute;
+      top: -4px;
+      left: -4px;
+      min-width: 18px;
+      height: 18px;
+      border-radius: 9px;
+      background: var(--red);
+      color: white;
+      font-size: 10px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 5px;
+      box-shadow: 0 2px 8px oklch(0.55 0.19 25 / 0.4);
+      animation: badgePop 0.3s var(--ease-spring) both;
+    }
+
+    @keyframes badgePop {
+      from { transform: scale(0); }
+      to { transform: scale(1); }
+    }
+
+    .alert-badge:empty, .alert-badge[data-count="0"] { display: none; }
+
+    /* Alert dropdown panel */
+    .alert-panel {
+      position: absolute;
+      top: calc(100% + 8px);
+      left: 0;
+      width: 380px;
+      max-height: 480px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-lg);
+      z-index: 1000;
+      overflow: hidden;
+      opacity: 0;
+      transform: translateY(-8px) scale(0.96);
+      pointer-events: none;
+      transition: opacity 0.25s var(--ease-out), transform 0.25s var(--ease-out);
+    }
+
+    .alert-panel.open {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+      pointer-events: auto;
+    }
+
+    .alert-panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .alert-panel-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .alert-panel-actions {
+      display: flex;
+      gap: 8px;
+    }
+
+    .alert-panel-btn {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--surface2);
+      color: var(--text-mid);
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .alert-panel-btn:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .alert-panel-list {
+      overflow-y: auto;
+      max-height: 380px;
+      padding: 8px 0;
+    }
+
+    .alert-panel-list::-webkit-scrollbar { width: 5px; }
+    .alert-panel-list::-webkit-scrollbar-thumb { background: oklch(0.85 0.005 250); border-radius: 3px; }
+
+    .alert-item {
+      display: flex;
+      gap: 12px;
+      padding: 12px 18px;
+      transition: background 0.15s ease;
+      cursor: default;
+    }
+
+    .alert-item:hover { background: var(--surface2); }
+
+    .alert-item + .alert-item { border-top: 1px solid oklch(0.94 0.004 250); }
+
+    .alert-severity-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      margin-top: 4px;
+      flex-shrink: 0;
+    }
+
+    .alert-severity-dot.critical { background: var(--red); box-shadow: 0 0 8px var(--red); }
+    .alert-severity-dot.warning { background: var(--amber); box-shadow: 0 0 8px oklch(0.65 0.15 70 / 0.4); }
+    .alert-severity-dot.info { background: var(--accent); }
+    .alert-severity-dot.opportunity { background: var(--green); box-shadow: 0 0 8px oklch(0.58 0.16 155 / 0.4); }
+
+    .alert-item-body { flex: 1; min-width: 0; }
+
+    .alert-item-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 3px;
+    }
+
+    .alert-item-msg {
+      font-size: 12px;
+      color: var(--text-mid);
+      line-height: 1.5;
+      margin-bottom: 4px;
+    }
+
+    .alert-item-rec {
+      font-size: 11px;
+      color: var(--accent);
+      font-weight: 600;
+    }
+
+    .alert-item-meta {
+      font-size: 10px;
+      color: var(--text-dim);
+      margin-top: 4px;
+      display: flex;
+      gap: 8px;
+    }
+
+    .alert-empty {
+      text-align: center;
+      padding: 32px 20px;
+      color: var(--text-dim);
+      font-size: 13px;
+    }
+
+    .alert-empty-icon {
+      font-size: 28px;
+      margin-bottom: 8px;
+    }
+
+    /* Proactive alerts in greeting */
+    .proactive-greeting-alerts {
+      margin-top: 16px;
+      padding: 14px 18px;
+      background: var(--amber-soft);
+      border: 1px solid oklch(0.65 0.15 70 / 0.25);
+      border-radius: var(--radius);
+    }
+
+    .proactive-greeting-alerts .pa-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text);
+      margin-bottom: 8px;
+    }
+
+    .proactive-greeting-alerts .pa-item {
+      display: flex;
+      gap: 8px;
+      align-items: flex-start;
+      padding: 4px 0;
+      font-size: 12.5px;
+      color: var(--text-mid);
+      line-height: 1.5;
+    }
+
+    /* ── Markdown: H1 ─────────────────── */
+    .md-h1 {
+      font-size: 18px;
+      font-weight: 800;
+      color: var(--text);
+      margin: 18px 0 10px;
+      padding-bottom: 8px;
+      border-bottom: 2px solid var(--accent);
+      letter-spacing: -0.02em;
+    }
+
+    /* ── Markdown: Code blocks ─────────── */
+    .md-code-block {
+      margin: 12px 0;
+      border-radius: 10px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+    }
+    .md-code-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 7px 14px;
+      background: oklch(0.22 0.020 260);
+      color: oklch(0.75 0.010 250);
+      font-size: 11px;
+      font-weight: 600;
+      font-family: var(--mono);
+    }
+    .md-code-copy-btn {
+      background: none;
+      border: 1px solid oklch(1 0 0 / 0.15);
+      color: oklch(0.70 0.008 250);
+      padding: 2px 10px;
+      font-size: 11px;
+      border-radius: 5px;
+      cursor: pointer;
+      font-family: var(--font);
+    }
+    .md-code-copy-btn:hover { background: oklch(1 0 0 / 0.08); }
+    .md-code-pre {
+      background: oklch(0.18 0.018 260);
+      color: oklch(0.82 0.010 250);
+      padding: 14px;
+      font-family: var(--mono);
+      font-size: 12.5px;
+      line-height: 1.65;
+      direction: ltr;
+      text-align: left;
+      white-space: pre-wrap;
+      word-break: break-all;
+      margin: 0;
+      overflow-x: auto;
+    }
+    .md-inline-code {
+      font-family: var(--mono);
+      font-size: 12px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 1px 5px;
+      color: var(--accent);
+    }
+
+    /* ── Markdown: Notes card ─────────── */
+    .md-notes-card {
+      background: linear-gradient(135deg, oklch(0.52 0.20 260 / 0.07), oklch(0.52 0.16 310 / 0.04));
+      border: 1px solid oklch(0.52 0.20 260 / 0.18);
+      border-right: 3px solid var(--accent);
+      border-radius: var(--radius);
+      padding: 14px 18px 10px;
+      margin: 12px 0;
+    }
+    .md-notes-title {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--accent);
+      margin-bottom: 10px;
+    }
+    .md-notes-card .md-list { margin: 4px 0 0; }
+    .md-notes-card .md-list li::before { background: var(--accent); }
+
+    /* ── Markdown: Account tree ────────── */
+    .md-tree {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-right: 3px solid var(--teal);
+      border-radius: var(--radius);
+      padding: 14px 20px;
+      margin: 12px 0;
+      font-family: var(--mono);
+      font-size: 13.5px;
+      line-height: 2;
+      direction: ltr;
+      text-align: left;
+      color: var(--text);
+      overflow-x: auto;
+    }
+    .md-tree-line { white-space: pre; }
+    .tree-node { color: var(--accent); font-weight: 700; }
+
+    /* ── Markdown: KPI cards from text ─── */
+    .md-kpi-row {
+      display: flex;
+      gap: 10px;
+      margin: 12px 0;
+      flex-wrap: wrap;
+    }
+    .md-kpi-card {
+      flex: 1;
+      min-width: 130px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-top: 3px solid var(--border-strong);
+      border-radius: var(--radius-lg);
+      padding: 14px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      transition: box-shadow 0.2s ease;
+    }
+    .md-kpi-card:hover { box-shadow: var(--shadow); }
+    .md-kpi-card.sales   { border-top-color: var(--green); }
+    .md-kpi-card.cost    { border-top-color: var(--amber); }
+    .md-kpi-card.profit  { border-top-color: var(--accent); }
+    .md-kpi-card.revenue { border-top-color: var(--teal); }
+    .md-kpi-card.expense { border-top-color: var(--red); }
+    .md-kpi-label { font-size: 12px; color: var(--text-dim); font-weight: 600; }
+    .md-kpi-val {
+      font-size: 22px;
+      font-weight: 800;
+      color: var(--text);
+      letter-spacing: -0.03em;
+      font-variant-numeric: tabular-nums;
+      direction: ltr;
+    }
+    .md-analysis-header { color: var(--teal); }
+  </style>
+</head>
+<body>
+  <div class="app">
+
+    <header class="header">
+      <div class="header-brand">
+        <div class="brand-icon">
+          <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
+        </div>
+        <div class="brand-text">
+          <span class="brand-name">JustClick AI Copilot</span>
+          <span class="brand-sub">المستشار التنفيذي الذكي</span>
+        </div>
+      </div>
+      <div class="header-end">
+        <div class="alert-bell" id="alert-bell" onclick="toggleAlertPanel()" title="التنبيهات">
+          <svg viewBox="0 0 24 24"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>
+          <span class="alert-badge" id="alert-badge"></span>
+          <div class="alert-panel" id="alert-panel">
+            <div class="alert-panel-header">
+              <span class="alert-panel-title">التنبيهات</span>
+              <div class="alert-panel-actions">
+                <button class="alert-panel-btn" onclick="event.stopPropagation(); acknowledgeAllAlerts()">تم الاطلاع</button>
+                <button class="alert-panel-btn" onclick="event.stopPropagation(); refreshAlerts()">تحديث</button>
+              </div>
+            </div>
+            <div class="alert-panel-list" id="alert-panel-list">
+              <div class="alert-empty">
+                <div class="alert-empty-icon">&#x2705;</div>
+                <div>لا توجد تنبيهات حالياً</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <button class="header-chip train-btn" onclick="openTrainModal()" title="تدريب AI على سؤال وتقرير">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+          <span>تدريب من تقرير</span>
+        </button>
+        <button class="header-chip clear-memory-btn" onclick="clearMemory()" title="مسح الذاكرة">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 105.64-11.36L1 10"/></svg>
+          <span>محادثة جديدة</span>
+        </button>
+        <div class="header-chip">
+          <span class="status-dot" id="status-dot"></span>
+          <span id="status-label">متصل</span>
+        </div>
+      </div>
+    </header>
+
+    <main class="chat-area" id="chat-area">
+      <div class="empty-state" id="empty-state">
+        <div class="copilot-avatar">
+          <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
+        </div>
+        <h2 class="empty-title">المستشار التنفيذي الذكي</h2>
+        <p class="empty-sub">اسأل عن بيانات شركتك بالعربي أو الإنجليزي. أحلل الأرقام وأقدم لك رؤى تنفيذية وتوصيات عملية.</p>
+        <div class="suggestions">
+          <button class="suggestion" onclick="askQuestion('لوحة المبيعات')">لوحة المبيعات</button>
+          <button class="suggestion" onclick="askQuestion('إجمالي المبيعات اليوم')">إجمالي المبيعات اليوم</button>
+          <button class="suggestion" onclick="askQuestion('أعلى 5 عملاء في المبيعات')">أعلى 5 عملاء</button>
+          <button class="suggestion" onclick="askQuestion('الإيرادات والمصروفات خلال آخر 6 شهور')">الإيرادات والمصروفات</button>
+          <button class="suggestion" onclick="askQuestion('رصيد حساب 1101')">رصيد حساب</button>
+          <button class="suggestion" onclick="askQuestion('لوحة الموظفين')">لوحة الموظفين</button>
+        </div>
+      </div>
+    </main>
+
+    <footer class="input-area">
+      <div class="input-row">
+        <textarea id="question-input" placeholder="اسأل عن المبيعات، العملاء، المخزون، الحسابات..." rows="1"
+          onkeydown="handleKey(event)" oninput="autoResize(this)"></textarea>
+        <button class="send-btn" id="send-btn" onclick="sendMessage()">
+          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+        </button>
+      </div>
+      <div class="input-hint">Enter للإرسال &middot; Shift+Enter لسطر جديد</div>
+    </footer>
+
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <!-- Training Modal -->
+  <div id="train-modal-overlay" onclick="closeTrainModalOutside(event)">
+    <div class="train-modal">
+      <div class="train-modal-header">
+        <h3>📊 تدريب AI على تقرير</h3>
+        <button class="train-modal-close" onclick="closeTrainModal()" title="إغلاق">✕</button>
+      </div>
+      <div class="train-field">
+        <label>اسم التقرير <span>*</span></label>
+        <input type="text" id="train-report-name" placeholder="مثال: تقرير_مبيعات_يناير_2024" />
+      </div>
+      <div class="train-field">
+        <label>وصف مختصر <span>*</span></label>
+        <input type="text" id="train-description" placeholder="مثال: تقرير مبيعات شهري مفصل بالعملاء والأصناف" />
+      </div>
+      <div class="train-field">
+        <label>SQL Query <span>*</span></label>
+        <textarea id="train-sql" rows="4" placeholder="SELECT ... FROM MAIN_INV JOIN ..."></textarea>
+      </div>
+      <div class="train-modal-actions">
+        <button class="train-cancel-btn" onclick="closeTrainModal()">إلغاء</button>
+        <button class="train-submit-btn" id="train-submit-btn" onclick="submitTraining()">
+          <div class="train-spinner" id="train-spinner"></div>
+          <span id="train-submit-label">حفظ وتدريب ✓</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+<script>
+  const API = (window.location.protocol === 'file:' || window.location.origin === 'null')
+    ? 'http://127.0.0.1:8000'
+    : window.location.origin;
+  let isLoading = false;
+  let conversationHistory = [];
+
+  const _urlKey = new URLSearchParams(window.location.search).get('api_key');
+  const API_KEY = _urlKey || localStorage.getItem('justclick_api_key') || '';
+  if (_urlKey) localStorage.setItem('justclick_api_key', _urlKey);
+
+  function apiHeaders() {
+    const h = { 'Content-Type': 'application/json' };
+    if (API_KEY) h['X-API-Key'] = API_KEY;
+    return h;
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // ICONS
+  // ══════════════════════════════════════════════════════════════
+  const KPI_ICONS = {
+    currency: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>',
+    trending: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>',
+    file: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>',
+    users: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>',
+    box: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/></svg>',
+    'check-circle': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>',
+    alert: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
+    'x-circle': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>',
+    layers: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>',
+    percent: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="5" x2="5" y2="19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/></svg>',
+  };
+
+  const CHIP_ICONS = {
+    chart: '📊', compare: '📈', branch: '🏢', ranking: '🏆', trend: '📉',
+    alert: '⚠️', finance: '💰', detail: '🔍', dashboard: '📋', tree: '🌳',
+    balance: '⚖️', movement: '🔄', new: '✨', summary: '📝', suggest: '💡',
+    export: '📥', predict: '🔮', workflow: '⚡',
+  };
+
+  const INSIGHT_ICONS = {
+    'trending-up': '📈', 'trending-down': '📉', alert: '⚠️',
+    info: '💡', variance: '📊', positive: '✅', warning: '⚡',
+  };
+
+  // Thinking phase messages for live copilot feeling
+  const THINKING_PHASES = [
+    'يحلل سؤالك',
+    'يبحث في البيانات',
+    'يُعد التحليل',
+    'يصيغ الإجابة',
+  ];
+
+  // ══════════════════════════════════════════════════════════════
+  // CHAT
+  // ══════════════════════════════════════════════════════════════
+  function now() {
+    return new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' });
+  }
+
+  function methodBadge(method, template) {
+    if (!method) return '';
+    if (method === 'template') return '<span class="method-badge template">Template</span>';
+    if (method === 'llm_controlled') return '<span class="method-badge llm">AI</span>';
+    if (method === 'greeting' || method === 'help') return '';
+    if (method === 'dashboard') return '<span class="method-badge dashboard">Dashboard</span>';
+    if (method === 'action') return '<span class="method-badge action">Action</span>';
+    if (method === 'workflow') return '<span class="method-badge workflow">Workflow</span>';
+    if (method === 'report') return '<span class="method-badge report">Report</span>';
+    if (method === 'navigation') return '<span class="method-badge navigation">Navigate</span>';
+    return '';
+  }
+
+  function removeEmpty() { document.getElementById('empty-state')?.remove(); }
+
+  function appendUser(text) {
+    removeEmpty();
+    const row = document.createElement('div');
+    row.className = 'msg-row';
+    row.innerHTML = '<div class="msg-user">' + escHtml(text) + '</div>';
+    document.getElementById('chat-area').appendChild(row);
+    scrollBottom();
+  }
+
+  function appendBot(answer, sql, rowCount, method, templateUsed, execTime, chartData, widgets, suggestions, insights, actionCard, navLinks, exportAvailable, reportData) {
+    const uid = 'sql_' + Date.now();
+    const chartId = 'cc_' + Date.now();
+    const hasWidgets = widgets && widgets.length > 0;
+    const row = document.createElement('div');
+    row.className = 'msg-row';
+
+    // Meta
+    const metaParts = ['<span class="msg-time">' + now() + '</span>'];
+    if (rowCount > 0) metaParts.push('<span class="msg-rows">' + rowCount + ' نتيجة</span>');
+    const badge = methodBadge(method, templateUsed);
+    if (badge) metaParts.push(badge);
+    if (execTime > 0) metaParts.push('<span class="msg-exec-time">' + execTime + 'ms</span>');
+
+    // SQL section
+    const hasSql = sql && sql.trim().length > 0;
+    const sqlSection = hasSql ? (
+      '<button class="sql-toggle" onclick="toggleSql(\'' + uid + '\', this)" aria-expanded="false">' +
+        '<svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>' +
+        'SQL' +
+      '</button>' +
+      '<div class="sql-block" id="' + uid + '">' +
+        '<div class="sql-header"><span>SQL</span><button class="copy-btn" onclick="copySql(\'' + uid + '\')">نسخ</button></div>' +
+        '<div class="sql-code">' + escHtml(sql) + '</div>' +
+      '</div>'
+    ) : '';
+
+    // Standalone chart
+    const chartSection = (chartData && !hasWidgets) ?
+      '<div class="chat-chart-container"><canvas id="' + chartId + '"></canvas></div>' : '';
+
+    // Inline widgets
+    let widgetHtml = '';
+    let pendingCharts = [];
+    if (hasWidgets) {
+      const wr = renderInlineWidgets(widgets);
+      widgetHtml = wr.html;
+      pendingCharts = wr.charts;
+    }
+
+    // ERP Operator: Action Card
+    const actionHtml = renderActionCard(actionCard, method);
+
+    // ERP Operator: Navigation Links
+    const navHtml = renderNavLinks(navLinks);
+
+    // ERP Operator: Export Available
+    const exportHtml = renderExportAvailable(exportAvailable);
+
+    // Insights
+    const insightHtml = renderInsights(insights);
+
+    // Suggestion chips
+    const chipHtml = renderSuggestionChips(suggestions);
+
+    // Rendered content with streaming class for animation
+    const contentId = 'content_' + Date.now();
+
+    row.innerHTML =
+      '<div class="msg-bot' + (hasWidgets ? ' has-widgets' : '') + (actionCard ? ' has-action' : '') + '">' +
+        '<div class="msg-bot-content" id="' + contentId + '">' + renderMarkdown(answer) + '</div>' +
+        actionHtml +
+        navHtml +
+        widgetHtml +
+        chartSection +
+        exportHtml +
+        insightHtml +
+        '<div class="msg-meta">' + metaParts.join('') + sqlSection + '</div>' +
+        chipHtml +
+      '</div>';
+
+    document.getElementById('chat-area').appendChild(row);
+
+    // Staged reveal: content first, then charts, then insights animate in via CSS
+    requestAnimationFrame(() => {
+      pendingCharts.forEach(c => initChartOnCanvas(c.canvasId, c.data));
+      if (chartData && !hasWidgets) renderChatChart(chartId, chartData);
+      row.querySelectorAll('[data-kpi-target]').forEach(el => {
+        animateKpiValue(el, parseFloat(el.dataset.kpiTarget), el.dataset.kpiFmt);
+      });
+
+      // Streaming text reveal effect for non-widget responses
+      if (!hasWidgets && !actionCard && answer && answer.length > 50) {
+        streamReveal(contentId);
+      }
+    });
+    scrollBottom();
+  }
+
+  // Streaming text reveal — progressive word-by-word appearance
+  function streamReveal(contentId) {
+    const container = document.getElementById(contentId);
+    if (!container) return;
+
+    // Only apply to paragraph text nodes, not tables/cards
+    const paragraphs = container.querySelectorAll('.md-p, .md-summary');
+    if (paragraphs.length === 0) return;
+
+    let wordDelay = 0;
+    paragraphs.forEach(p => {
+      const original = p.innerHTML;
+      // Split by words but preserve HTML tags
+      const parts = original.split(/(\s+)/);
+      let rebuilt = '';
+      parts.forEach(part => {
+        if (part.trim() && !part.startsWith('<')) {
+          rebuilt += '<span class="stream-word" style="animation-delay:' + wordDelay + 'ms">' + part + '</span>';
+          wordDelay += 18;
+        } else {
+          rebuilt += part;
+        }
+      });
+      p.innerHTML = rebuilt;
+    });
+
+    container.classList.add('streaming');
+    // Remove streaming class after animation completes
+    setTimeout(() => {
+      container.classList.remove('streaming');
+      paragraphs.forEach(p => {
+        p.querySelectorAll('.stream-word').forEach(sw => {
+          sw.style.opacity = '1';
+          sw.style.animation = 'none';
+        });
+      });
+    }, wordDelay + 200);
+  }
+
+  function appendError(msg) {
+    const row = document.createElement('div');
+    row.className = 'msg-row';
+    row.innerHTML = '<div class="msg-error">' + escHtml(msg) + '</div>';
+    document.getElementById('chat-area').appendChild(row);
+    scrollBottom();
+  }
+
+  // Enhanced loading with thinking phases
+  let thinkingInterval = null;
+  function showLoading() {
+    const el = document.createElement('div');
+    el.id = 'loading-indicator';
+    el.className = 'loading-indicator';
+    el.innerHTML =
+      '<div class="loading-avatar"><svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg></div>' +
+      '<div class="loading-content">' +
+        '<span class="loading-text" id="thinking-text">' + THINKING_PHASES[0] + '</span>' +
+        '<span class="loading-sub" id="thinking-sub">يعالج طلبك...</span>' +
+      '</div>' +
+      '<div class="loading-dots"><span></span><span></span><span></span></div>';
+    document.getElementById('chat-area').appendChild(el);
+    scrollBottom();
+
+    // Cycle through thinking phases
+    let phase = 0;
+    thinkingInterval = setInterval(() => {
+      phase = (phase + 1) % THINKING_PHASES.length;
+      const textEl = document.getElementById('thinking-text');
+      if (textEl) {
+        textEl.style.opacity = '0';
+        setTimeout(() => {
+          if (textEl) {
+            textEl.textContent = THINKING_PHASES[phase];
+            textEl.style.opacity = '1';
+          }
+        }, 150);
+      }
+    }, 1800);
+  }
+
+  function removeLoading() {
+    if (thinkingInterval) { clearInterval(thinkingInterval); thinkingInterval = null; }
+    document.getElementById('loading-indicator')?.remove();
+  }
+
+  // ── SSE Streaming Mode ─────────────────────────────────────────
+  const USE_STREAMING = true; // Enable real-time streaming
+
+  async function sendMessage() {
+    if (isLoading) return;
+    const input = document.getElementById('question-input');
+    const question = input.value.trim();
+    if (!question) return;
+
+    input.value = '';
+    input.style.height = 'auto';
+    document.getElementById('send-btn').disabled = true;
+    isLoading = true;
+
+    appendUser(question);
+
+    if (USE_STREAMING) {
+      await sendMessageSSE(question);
+      return;
+    }
+
+    showLoading();
+
+    try {
+      const res = await fetch(API + '/chat/', {
+        method: 'POST',
+        headers: apiHeaders(),
+        body: JSON.stringify({
+          question,
+          company_code: '1',
+          fiscal_year: '2024',
+          history: conversationHistory.slice(-10)
+        })
+      });
+
+      const data = await res.json();
+      removeLoading();
+
+      if (!res.ok) {
+        appendError(data.detail || 'حدث خطأ في السيرفر');
+      } else {
+        conversationHistory.push({ role: 'user', content: question });
+        conversationHistory.push({
+          role: 'assistant',
+          content: data.sql_generated
+            ? 'SQL: ' + data.sql_generated + '\n(' + data.row_count + ' rows)\n' + data.answer
+            : data.answer
+        });
+
+        // Track pending action for confirmation flow
+        if (data.action_id) {
+          window._pendingActionId = data.action_id;
+        } else {
+          window._pendingActionId = null;
+        }
+
+        // Append proactive alerts HTML to greeting answers
+        let displayAnswer = data.answer;
+        if (data.proactive_alerts && data.proactive_alerts.length > 0) {
+          displayAnswer += '\n' + renderProactiveAlerts(data.proactive_alerts);
+        }
+        appendBot(
+          displayAnswer,
+          data.sql_generated,
+          data.row_count,
+          data.method,
+          data.template_used,
+          data.execution_time_ms,
+          data.chart_data,
+          data.widgets,
+          data.suggestions,
+          data.insights,
+          data.action_card,
+          data.navigation_links,
+          data.export_available,
+          data.report_data
+        );
+      }
+    } catch (err) {
+      removeLoading();
+      appendError('تعذّر الاتصال بالسيرفر');
+    } finally {
+      isLoading = false;
+      document.getElementById('send-btn').disabled = false;
+      input.focus();
+    }
+  }
+
+  // ── SSE Streaming Client ─────────────────────────────────────────
+  async function sendMessageSSE(question) {
+    const chatBox = document.getElementById('chat-area');
+    // Create streaming response container
+    const row = document.createElement('div');
+    row.className = 'msg-row bot-row';
+    const stageId = 'sse_stage_' + Date.now();
+    const contentId = 'sse_content_' + Date.now();
+    row.innerHTML =
+      '<div class="msg-bot">' +
+        '<div class="sse-stages" id="' + stageId + '"><div class="sse-stage-item running"><span class="stage-icon">⟳</span> جاري المعالجة...</div></div>' +
+        '<div class="msg-bot-content" id="' + contentId + '" style="display:none;"></div>' +
+        '<div class="sse-meta" id="' + stageId + '_meta"></div>' +
+      '</div>';
+    chatBox.appendChild(row);
+    scrollBottom();
+
+    const stageEl = document.getElementById(stageId);
+    const contentEl = document.getElementById(contentId);
+    const metaEl = document.getElementById(stageId + '_meta');
+    let fullText = '';
+    let meta = {};
+
+    function renderStage(stage) {
+      const existing = stageEl.querySelector('[data-stage="' + stage.name + '"]');
+      const statusIcon = stage.status === 'completed' ? '✓' : stage.status === 'running' ? '⟳' : '○';
+      const cls = 'sse-stage-item ' + stage.status;
+      if (existing) {
+        existing.className = cls;
+        existing.innerHTML = '<span class="stage-icon">' + statusIcon + '</span> ' + stage.label;
+      } else {
+        const el = document.createElement('div');
+        el.className = cls;
+        el.setAttribute('data-stage', stage.name);
+        el.innerHTML = '<span class="stage-icon">' + statusIcon + '</span> ' + stage.label;
+        stageEl.appendChild(el);
+      }
+    }
+
+    try {
+      const res = await fetch(API + '/chat/stream', {
+        method: 'POST',
+        headers: apiHeaders(),
+        body: JSON.stringify({
+          question,
+          company_code: '1',
+          fiscal_year: '2024',
+          history: conversationHistory.slice(-10),
+          user_id: 'web_user',
+        })
+      });
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let eventType = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        // Parse SSE events from buffer
+        const lines = buffer.split('\n');
+        buffer = lines.pop(); // keep incomplete line in buffer
+
+        for (const line of lines) {
+          if (line.startsWith('event: ')) {
+            eventType = line.slice(7).trim();
+          } else if (line.startsWith('data: ') && eventType) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              switch (eventType) {
+                case 'stage':
+                  renderStage(data);
+                  break;
+                case 'chunk':
+                  fullText += data.text;
+                  contentEl.style.display = '';
+                  contentEl.innerHTML = renderMarkdown(fullText);
+                  scrollBottom();
+                  break;
+                case 'sql':
+                  meta.sql = data.sql;
+                  break;
+                case 'chart':
+                  meta.chart = data;
+                  break;
+                case 'meta':
+                  meta = { ...meta, ...data };
+                  break;
+                case 'done':
+                  // Finalize
+                  stageEl.style.display = 'none';
+                  break;
+                case 'error':
+                  contentEl.style.display = '';
+                  contentEl.innerHTML = '<span class="error-msg">' + escHtml(data.message) + '</span>';
+                  break;
+              }
+            } catch (e) { /* skip malformed JSON */ }
+            eventType = '';
+          }
+        }
+      }
+
+      // After stream completes: final re-render ensures complete markdown structure
+      contentEl.innerHTML = renderMarkdown(fullText);
+
+      // Render post-stream UI elements (chips, chart, SQL toggle)
+      try {
+        if (meta.suggestions && meta.suggestions.length > 0) {
+          contentEl.insertAdjacentHTML('afterend', renderSuggestionChips(meta.suggestions));
+        }
+        if (meta.chart && contentEl.parentElement) {
+          const ccId = 'ssecc_' + Date.now();
+          const ccWrap = document.createElement('div');
+          ccWrap.className = 'chat-chart-container';
+          ccWrap.innerHTML = '<canvas id="' + ccId + '"></canvas>';
+          contentEl.parentElement.appendChild(ccWrap);
+          requestAnimationFrame(() => renderChatChart(ccId, meta.chart));
+        }
+        if (meta.sql) {
+          const uid = 'ssesql_' + Date.now();
+          const sqlHtml =
+            '<button class="sql-toggle" onclick="toggleSql(\'' + uid + '\', this)" aria-expanded="false">' +
+              '<svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>SQL' +
+            '</button>' +
+            '<div class="sql-block" id="' + uid + '">' +
+              '<div class="sql-header"><span>SQL</span><button class="copy-btn" onclick="copySql(\'' + uid + '\')">نسخ</button></div>' +
+              '<div class="sql-code">' + escHtml(meta.sql) + '</div>' +
+            '</div>';
+          contentEl.insertAdjacentHTML('afterend', sqlHtml);
+        }
+      } catch (postErr) {
+        console.error('[SSE] post-stream render error:', postErr);
+      }
+      conversationHistory.push({ role: 'user', content: question });
+      conversationHistory.push({ role: 'assistant', content: fullText });
+
+    } catch (err) {
+      // SSE Resilience: Immediate fallback to non-streaming /chat/ endpoint
+      console.warn('[SSE] Stream failed, falling back to /chat/', err.message);
+      stageEl.innerHTML = '<div class="sse-stage-item running"><span class="stage-icon">⟳</span> جاري المعالجة...</div>';
+      try {
+        const fallbackRes = await fetch(API + '/chat/', {
+          method: 'POST',
+          headers: apiHeaders(),
+          body: JSON.stringify({
+            question,
+            company_code: '1',
+            fiscal_year: '2024',
+            user_id: 'web_user',
+            history: conversationHistory.slice(-10)
+          })
+        });
+        const fallbackData = await fallbackRes.json();
+        if (fallbackRes.ok && fallbackData.answer) {
+          stageEl.style.display = 'none';
+          contentEl.style.display = '';
+          contentEl.innerHTML = renderMarkdown(fallbackData.answer);
+          fullText = fallbackData.answer;
+          meta = fallbackData;
+          if (fallbackData.suggestions) {
+            contentEl.insertAdjacentHTML('afterend', renderSuggestionChips(fallbackData.suggestions));
+          }
+          if (fallbackData.chart_data) {
+            const fbCcId = 'fbcc_' + Date.now();
+            const fbWrap = document.createElement('div');
+            fbWrap.className = 'chat-chart-container';
+            fbWrap.innerHTML = '<canvas id="' + fbCcId + '"></canvas>';
+            contentEl.parentElement.appendChild(fbWrap);
+            requestAnimationFrame(() => renderChatChart(fbCcId, fallbackData.chart_data));
+          }
+          conversationHistory.push({ role: 'user', content: question });
+          conversationHistory.push({ role: 'assistant', content: fullText });
+        } else {
+          const errMsg = fallbackData.detail || 'حدث خطأ — حاول مرة أخرى';
+          contentEl.style.display = '';
+          contentEl.innerHTML = '<span class="error-msg">' + escHtml(errMsg) + '</span>';
+          stageEl.style.display = 'none';
+        }
+      } catch (retryErr) {
+        contentEl.style.display = '';
+        contentEl.innerHTML = '<span class="error-msg">تعذّر الاتصال — تأكد من اتصال الإنترنت وحاول مرة أخرى</span>';
+        stageEl.style.display = 'none';
+      }
+    } finally {
+      isLoading = false;
+      document.getElementById('send-btn').disabled = false;
+      document.getElementById('question-input').focus();
+    }
+  }
+
+  function askQuestion(q) {
+    document.getElementById('question-input').value = q;
+    sendMessage();
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // ERP OPERATOR: ACTION CARDS, NAVIGATION, EXPORT
+  // ══════════════════════════════════════════════════════════════
+
+  function renderActionCard(actionCard, method) {
+    if (!actionCard) return '';
+    const status = actionCard.status || '';
+    const isResult = (status === 'completed' || status === 'failed' || status === 'rejected');
+
+    if (isResult) {
+      // Execution result card
+      const statusClass = status === 'completed' ? 'success' : 'error';
+      const statusIcon = status === 'completed' ? '&#10003;' : '&#10007;';
+      const statusLabel = status === 'completed' ? 'تم التنفيذ' : status === 'failed' ? 'فشل' : 'مرفوض';
+      let h = '<div class="action-card action-result ' + statusClass + '">';
+      h += '<div class="action-result-header"><span class="action-status-icon">' + statusIcon + '</span> ' + statusLabel + '</div>';
+      if (actionCard.action_type) {
+        h += '<div class="action-detail"><span>النوع:</span> ' + escHtml(actionCard.action_type_label || actionCard.action_type) + '</div>';
+      }
+      if (actionCard.message) {
+        h += '<div class="action-detail">' + escHtml(actionCard.message) + '</div>';
+      }
+      h += '</div>';
+      return h;
+    }
+
+    // Confirmation card (pending action)
+    let h = '<div class="action-card action-confirm">';
+    h += '<div class="action-card-header">';
+    h += '<span class="action-icon">&#9889;</span>';
+    h += '<span class="action-title">' + escHtml(actionCard.action_type_label || 'إجراء') + '</span>';
+    if (actionCard.risk_level) {
+      const riskClass = actionCard.risk_level === 'high' ? 'risk-high' : actionCard.risk_level === 'medium' ? 'risk-medium' : 'risk-low';
+      h += '<span class="action-risk ' + riskClass + '">' + escHtml(actionCard.risk_level) + '</span>';
+    }
+    h += '</div>';
+
+    if (actionCard.description) {
+      h += '<div class="action-desc">' + escHtml(actionCard.description) + '</div>';
+    }
+
+    // Parameters
+    if (actionCard.params && Object.keys(actionCard.params).length > 0) {
+      h += '<div class="action-params">';
+      for (const [k, v] of Object.entries(actionCard.params)) {
+        if (v) h += '<div class="action-param"><span>' + escHtml(k) + ':</span> ' + escHtml(String(v)) + '</div>';
+      }
+      h += '</div>';
+    }
+
+    // Warnings
+    if (actionCard.warnings && actionCard.warnings.length > 0) {
+      h += '<div class="action-warnings">';
+      actionCard.warnings.forEach(w => {
+        h += '<div class="action-warning">&#9888; ' + escHtml(w) + '</div>';
+      });
+      h += '</div>';
+    }
+
+    // Confirmation buttons
+    h += '<div class="action-buttons">';
+    h += '<button class="action-btn confirm" onclick="askQuestion(\'نعم\')">&#10003; تأكيد التنفيذ</button>';
+    h += '<button class="action-btn cancel" onclick="askQuestion(\'لا\')">&#10007; إلغاء</button>';
+    h += '</div>';
+    h += '</div>';
+    return h;
+  }
+
+  function renderNavLinks(navLinks) {
+    if (!navLinks || navLinks.length === 0) return '';
+    let h = '<div class="nav-links">';
+    navLinks.forEach(page => {
+      const icon = page.icon || 'file';
+      h += '<a class="nav-link-card" href="' + escAttr(page.url || '#') + '" target="_blank" rel="noopener">';
+      h += '<span class="nav-link-title">' + escHtml(page.title_ar || page.title_en || '') + '</span>';
+      if (page.title_en) h += '<span class="nav-link-sub">' + escHtml(page.title_en) + '</span>';
+      h += '</a>';
+    });
+    h += '</div>';
+    return h;
+  }
+
+  function renderExportAvailable(exportInfo) {
+    if (!exportInfo) return '';
+    let h = '<div class="export-bar">';
+    h += '<span class="export-msg">' + escHtml(exportInfo.message || 'يمكن تصدير النتائج') + '</span>';
+    h += '<button class="export-btn" onclick="triggerExport(\'' + escAttr(exportInfo.format || 'excel') + '\')">تصدير ' + escHtml((exportInfo.format || 'excel').toUpperCase()) + '</button>';
+    h += '</div>';
+    return h;
+  }
+
+  function triggerExport(format) {
+    // Trigger export by asking the assistant
+    const formatLabels = { pdf: 'PDF', excel: 'Excel', csv: 'CSV', json: 'JSON' };
+    askQuestion('صدّر النتائج ' + (formatLabels[format] || format));
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // COPILOT: SUGGESTION CHIPS
+  // ══════════════════════════════════════════════════════════════
+  function renderSuggestionChips(suggestions) {
+    if (!suggestions || suggestions.length === 0) return '';
+    let html = '<div class="suggestion-chips">';
+    suggestions.forEach(s => {
+      const icon = CHIP_ICONS[s.icon] || CHIP_ICONS.suggest;
+      html += '<button class="suggestion-chip" onclick="askQuestion(\'' + escAttr(s.query) + '\')">' +
+        '<span class="chip-icon">' + icon + '</span>' +
+        escHtml(s.label) +
+      '</button>';
+    });
+    html += '</div>';
+    return html;
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // COPILOT: INSIGHT BLOCKS
+  // ══════════════════════════════════════════════════════════════
+  function renderInsights(insights) {
+    if (!insights || insights.length === 0) return '';
+    let html = '<div class="copilot-insights">';
+    insights.forEach((ins, idx) => {
+      if (!ins.text) return;
+      const type = ins.type || 'neutral';
+      const icon = INSIGHT_ICONS[ins.icon] || INSIGHT_ICONS.info;
+      const delay = (idx * 0.12) + 0.1;
+      html += '<div class="copilot-insight ' + type + '" style="animation-delay:' + delay + 's">' +
+        '<span class="insight-icon">' + icon + '</span>' +
+        '<span>' + escHtml(ins.text) + '</span>' +
+      '</div>';
+    });
+    html += '</div>';
+    return html;
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // INLINE WIDGET RENDERING
+  // ══════════════════════════════════════════════════════════════
+  function renderInlineWidgets(widgets) {
+    let html = '<div class="msg-widgets">';
+    const charts = [];
+
+    widgets.forEach((w, i) => {
+      const sizeClass = 'w-' + (w.size || 'sm');
+      const delay = 'animation-delay:' + (i * 0.08) + 's';
+
+      if (w.error) {
+        html += '<div class="' + sizeClass + ' inline-error widget-enter" style="' + delay + '">' +
+          escHtml(w.title) + ': خطأ في التحميل</div>';
+        return;
+      }
+
+      if (w.type === 'kpi') {
+        html += renderInlineKpi(w, sizeClass, delay);
+      } else if (['bar','line','pie','donut','doughnut','area'].includes(w.type)) {
+        const canvasId = 'wc_' + w.id + '_' + Date.now() + '_' + i;
+        html += renderInlineChartWidget(w, sizeClass, delay, canvasId);
+        if (w.data) charts.push({ canvasId, data: w.data });
+      } else if (w.type === 'table') {
+        html += renderInlineTableWidget(w, sizeClass, delay);
+      }
+    });
+
+    html += '</div>';
+    return { html, charts };
+  }
+
+  function renderInlineKpi(w, sizeClass, delay) {
+    const val = w.data?.value ?? 0;
+    const fmt = w.data?.format || 'number';
+    const icon = KPI_ICONS[w.icon] || KPI_ICONS.currency;
+
+    let displayVal;
+    if (fmt === 'currency') displayVal = formatCurrency(val);
+    else if (fmt === 'percent') displayVal = val.toFixed(1) + '%';
+    else displayVal = formatNumber(val);
+
+    return '<div class="inline-kpi ' + sizeClass + ' widget-enter" style="' + delay + '">' +
+      '<div class="inline-kpi-head">' +
+        '<span class="inline-kpi-label">' + escHtml(w.title) + '</span>' +
+        '<div class="inline-kpi-icon ' + (w.color || 'blue') + '">' + icon + '</div>' +
+      '</div>' +
+      '<div class="inline-kpi-value" data-kpi-target="' + val + '" data-kpi-fmt="' + fmt + '">' + displayVal + '</div>' +
+      (w.description ? '<div class="inline-kpi-desc">' + escHtml(w.description) + '</div>' : '') +
+    '</div>';
+  }
+
+  function renderInlineChartWidget(w, sizeClass, delay, canvasId) {
+    return '<div class="inline-chart ' + sizeClass + ' widget-enter" style="' + delay + '">' +
+      '<div class="inline-chart-title">' + escHtml(w.title) + '</div>' +
+      '<div class="inline-chart-wrap"><canvas id="' + canvasId + '"></canvas></div>' +
+    '</div>';
+  }
+
+  function renderInlineTableWidget(w, sizeClass, delay) {
+    const d = w.data;
+    const tableUid = 'tbl_' + w.id + '_' + Date.now();
+    if (!d || !d.columns || !d.rows || d.rows.length === 0) {
+      return '<div class="inline-table ' + sizeClass + ' widget-enter" style="' + delay + '">' +
+        '<div class="inline-table-title">' + escHtml(w.title) + '</div>' +
+        '<div style="padding:16px;text-align:center;color:var(--text-dim);font-size:13px">لا توجد بيانات</div>' +
+      '</div>';
+    }
+
+    let thead = d.columns.map(c => '<th>' + escHtml(c) + '</th>').join('');
+    let tbody = d.rows.map(row => {
+      const cells = d.columns.map(c => {
+        const v = row[c];
+        const isNum = typeof v === 'number';
+        return '<td class="' + (isNum ? 'num' : '') + '">' +
+          (isNum ? Number(v).toLocaleString('en-US', {maximumFractionDigits: 2}) : escHtml(String(v ?? ''))) +
+        '</td>';
+      }).join('');
+      return '<tr>' + cells + '</tr>';
+    }).join('');
+
+    return '<div class="inline-table ' + sizeClass + ' widget-enter" style="' + delay + '">' +
+      '<div class="inline-table-title">' + escHtml(w.title) + '</div>' +
+      '<div class="inline-table-wrap">' +
+        '<table class="data-table" id="' + tableUid + '"><thead><tr>' + thead + '</tr></thead><tbody>' + tbody + '</tbody></table>' +
+      '</div>' +
+      '<button class="csv-export-btn" onclick="exportTableCsv(document.getElementById(\'' + tableUid + '\'), \'' + escAttr(w.title) + '\')">' +
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>' +
+        'تصدير CSV' +
+      '</button>' +
+    '</div>';
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // MARKDOWN RENDERER
+  // ══════════════════════════════════════════════════════════════
+  function renderMarkdown(text) {
+    if (!text) return '';
+
+    // Pre-process: extract fenced code blocks before line-by-line parsing
+    const _codeBlocks = [];
+    text = text.replace(/```(\w*)\n?([\s\S]*?)```/g, function(match, lang, code) {
+      const ph = '\x01CB' + _codeBlocks.length + '\x01';
+      _codeBlocks.push({ lang: lang.trim(), code: code.trimEnd() });
+      return ph;
+    });
+
+    const lines = text.split('\n');
+    let html = '';
+    let i = 0;
+    let afterHr = false;
+
+    while (i < lines.length) {
+      const raw = lines[i];
+      const line = raw.trim();
+
+      if (!line) { i++; continue; }
+
+      // Fenced code block placeholder
+      if (line.startsWith('\x01CB') && line.endsWith('\x01')) {
+        const idx = parseInt(line.slice(3, -1), 10);
+        const cb = _codeBlocks[idx];
+        if (cb) html += renderCodeBlock(cb.lang, cb.code);
+        i++; afterHr = false; continue;
+      }
+
+      // Horizontal rule
+      if (/^[-*_]{3,}$/.test(line)) {
+        afterHr = true;
+        html += '<hr class="md-hr">';
+        i++; continue;
+      }
+
+      // H3 — checked before H2 to avoid prefix collision
+      if (/^### /.test(line)) {
+        const title = line.slice(4);
+        if (/^(ملاحظات|ملاحظة|تنبيهات|توصيات)/.test(title)) {
+          // Notes card: collect following list items
+          i++;
+          while (i < lines.length && !lines[i].trim()) i++;
+          let preText = '';
+          if (i < lines.length && lines[i].trim() && !/^\s*[-*]\s/.test(lines[i])) {
+            preText = lines[i].trim(); i++;
+            while (i < lines.length && !lines[i].trim()) i++;
+          }
+          const noteItems = [];
+          while (i < lines.length && /^\s*[-*]\s+/.test(lines[i])) {
+            noteItems.push(lines[i].trim().replace(/^[-*]\s+/, '')); i++;
+          }
+          html += renderNotesCard(title, preText, noteItems);
+        } else if (/^(تحليل الهيكل|تحليل|تقييم)/.test(title)) {
+          html += '<h4 class="md-h4 md-analysis-header">🌳 ' + escHtml(title) + '</h4>';
+          i++;
+        } else {
+          html += '<h4 class="md-h4">' + inlineFmt(escHtml(title)) + '</h4>';
+          i++;
+        }
+        afterHr = false; continue;
+      }
+
+      // H2
+      if (/^## /.test(line)) {
+        html += '<h3 class="md-h3">' + inlineFmt(escHtml(line.slice(3))) + '</h3>';
+        i++; afterHr = false; continue;
+      }
+
+      // H1
+      if (/^# /.test(line)) {
+        html += '<h2 class="md-h1">' + inlineFmt(escHtml(line.slice(2))) + '</h2>';
+        i++; afterHr = false; continue;
+      }
+
+      // Account tree (box-drawing characters)
+      if (/[└├│┌]/.test(line)) {
+        const treeLines = [];
+        while (i < lines.length && lines[i].trim()) {
+          treeLines.push(lines[i]); i++;
+        }
+        html += renderAccountTree(treeLines);
+        afterHr = false; continue;
+      }
+
+      // Markdown table
+      if (line.startsWith('|')) {
+        const tLines = [];
+        while (i < lines.length && lines[i].trim().startsWith('|')) {
+          tLines.push(lines[i].trim()); i++;
+        }
+        html += renderMdTable(tLines);
+        afterHr = false; continue;
+      }
+
+      // Financial KPI cards
+      if (isKpiLine(line)) {
+        const kpiLines = [line]; i++;
+        while (i < lines.length && isKpiLine(lines[i].trim())) {
+          kpiLines.push(lines[i].trim()); i++;
+        }
+        html += renderKpiCards(kpiLines);
+        afterHr = false; continue;
+      }
+
+      // Unordered list
+      if (/^[-*]\s+/.test(line)) {
+        const items = [];
+        while (i < lines.length && /^\s*[-*]\s+/.test(lines[i])) {
+          items.push(lines[i].trim().replace(/^[-*]\s+/, '')); i++;
+        }
+        html += '<ul class="md-list">' + items.map(it => '<li>' + inlineFmt(escHtml(it)) + '</li>').join('') + '</ul>';
+        afterHr = false; continue;
+      }
+
+      // Ordered list
+      if (/^\d+[.)]\s+/.test(line)) {
+        const items = [];
+        while (i < lines.length && /^\s*\d+[.)]\s+/.test(lines[i])) {
+          items.push(lines[i].trim().replace(/^\d+[.)]\s+/, '')); i++;
+        }
+        html += '<ol class="md-olist">' + items.map(it => '<li>' + inlineFmt(escHtml(it)) + '</li>').join('') + '</ol>';
+        afterHr = false; continue;
+      }
+
+      // Key-value card
+      if (isKvLine(line)) {
+        const kvLines = [];
+        while (i < lines.length && lines[i].trim() && isKvLine(lines[i].trim())) {
+          kvLines.push(lines[i].trim()); i++;
+        }
+        if (kvLines.length >= 2) { html += renderMdCard(kvLines); afterHr = false; continue; }
+        html += wrapParagraph(kvLines[0], afterHr);
+        afterHr = false; continue;
+      }
+
+      // Regular paragraph
+      html += wrapParagraph(line, afterHr);
+      afterHr = false;
+      i++;
+    }
+
+    return html;
+  }
+
+  function wrapParagraph(line, isSummary) {
+    const cls = isSummary ? 'md-summary' : 'md-p';
+    return '<p class="' + cls + '">' + inlineFmt(escHtml(line)) + '</p>';
+  }
+
+  function isKvLine(line) {
+    if (!line || line.startsWith('|') || line.startsWith('#') || /^[-*]\s/.test(line) || /^\d+[.)]\s/.test(line)) return false;
+    if (/^[-*_]{3,}$/.test(line)) return false;
+    const idx = line.indexOf(':');
+    if (idx <= 0 || idx >= line.length - 1) return false;
+    const label = line.substring(0, idx).trim();
+    return label.length > 0 && label.length < 35;
+  }
+
+  function renderMdCard(lines) {
+    let h = '<div class="md-card">';
+    for (const line of lines) {
+      const idx = line.indexOf(':');
+      const label = line.substring(0, idx).trim();
+      const value = line.substring(idx + 1).trim();
+      const isNumeric = /^[\d,.\-٠-٩٫٬\s%]+$/.test(value.replace(/[^\d,.\-%٠-٩٫٬\s]/g, ''));
+      h += '<div class="md-card-field">' +
+        '<span class="md-card-label">' + escHtml(label) + '</span>' +
+        '<span class="md-card-value' + (isNumeric ? '' : ' text-val') + '">' + inlineFmt(escHtml(value)) + '</span>' +
+      '</div>';
+    }
+    h += '</div>';
+    return h;
+  }
+
+  function renderMdTable(tLines) {
+    if (tLines.length < 2) return tLines.map(l => '<p class="md-p">' + escHtml(l) + '</p>').join('');
+    const parseCells = row => row.replace(/^\||\|$/g, '').split('|').map(c => c.trim());
+    const headers = parseCells(tLines[0]);
+    let dataStart = 1;
+    if (tLines.length > 1 && /^[\s|:-]+$/.test(tLines[1])) dataStart = 2;
+    const rows = [];
+    for (let j = dataStart; j < tLines.length; j++) {
+      const cells = parseCells(tLines[j]);
+      if (cells.length > 0 && cells.some(c => c)) rows.push(cells);
+    }
+    let h = '<div class="md-table-wrap"><table class="data-table"><thead><tr>';
+    headers.forEach(hdr => { h += '<th>' + inlineFmt(escHtml(hdr)) + '</th>'; });
+    h += '</tr></thead><tbody>';
+    rows.forEach(row => {
+      h += '<tr>';
+      row.forEach(cell => {
+        const isNum = /^[\d,.\-٫٬\s]+$/.test(cell) && cell.length > 0;
+        h += '<td class="' + (isNum ? 'num' : '') + '">' + inlineFmt(escHtml(cell)) + '</td>';
+      });
+      h += '</tr>';
+    });
+    h += '</tbody></table></div>';
+    return h;
+  }
+
+  function inlineFmt(text) {
+    return text
+      .replace(/`([^`\n]+)`/g, '<code class="md-inline-code">$1</code>')
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  }
+
+  // ── New Markdown component helpers ────────────────────────────
+
+  function renderCodeBlock(lang, code) {
+    const langLabel = (lang || 'CODE').toUpperCase();
+    const uid = 'cb_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+    return '<div class="md-code-block">' +
+      '<div class="md-code-header">' +
+        '<span>' + escHtml(langLabel) + '</span>' +
+        '<button class="md-code-copy-btn" onclick="copyCodeBlock(\'' + uid + '\')">نسخ</button>' +
+      '</div>' +
+      '<pre class="md-code-pre" id="' + uid + '">' + escHtml(code) + '</pre>' +
+    '</div>';
+  }
+
+  function copyCodeBlock(uid) {
+    const el = document.getElementById(uid);
+    if (el) navigator.clipboard.writeText(el.textContent).then(() => showToast('تم النسخ'));
+  }
+
+  function renderNotesCard(title, preText, items) {
+    const ICONS = { 'ملاحظات': '💡', 'ملاحظة': '💡', 'تنبيهات': '⚠️', 'توصيات': '✅' };
+    const icon = Object.keys(ICONS).reduce((acc, k) => title.startsWith(k) ? ICONS[k] : acc, '📌');
+    let h = '<div class="md-notes-card"><div class="md-notes-title">' + icon + ' ' + escHtml(title) + '</div>';
+    if (preText) h += '<p class="md-p" style="margin:0 0 8px">' + inlineFmt(escHtml(preText)) + '</p>';
+    if (items.length > 0) {
+      h += '<ul class="md-list">' + items.map(it => '<li>' + inlineFmt(escHtml(it)) + '</li>').join('') + '</ul>';
+    }
+    h += '</div>';
+    return h;
+  }
+
+  function renderAccountTree(lines) {
+    let h = '<div class="md-tree">';
+    lines.forEach(line => {
+      const escaped = escHtml(line);
+      const highlighted = escaped.replace(/(\b\d{1,10}\b)/g, '<span class="tree-node">$1</span>');
+      h += '<div class="md-tree-line">' + highlighted + '</div>';
+    });
+    h += '</div>';
+    return h;
+  }
+
+  const _KPI_DEFS = [
+    { patterns: ['إجمالي المبيعات', 'مجموع المبيعات'], type: 'sales' },
+    { patterns: ['إجمالي المشتريات', 'تكلفة المبيعات'], type: 'cost' },
+    { patterns: ['صافي الربح', 'الربح الصافي', 'صافي الدخل'], type: 'profit' },
+    { patterns: ['إجمالي الإيرادات', 'الإيرادات الإجمالية'], type: 'revenue' },
+    { patterns: ['إجمالي المصروفات', 'المصروفات الإجمالية'], type: 'expense' },
+  ];
+
+  function isKpiLine(line) {
+    if (!line || !/\*\*[\d,،.٠-٩]+\*\*/.test(line)) return false;
+    return _KPI_DEFS.some(d => d.patterns.some(p => line.includes(p)));
+  }
+
+  function renderKpiCards(lines) {
+    let h = '<div class="md-kpi-row">';
+    lines.forEach(line => {
+      const def = _KPI_DEFS.find(d => d.patterns.some(p => line.includes(p)));
+      const type = def ? def.type : 'sales';
+      const valMatch = line.match(/\*\*([\d,،.٠-٩]+)\*\*/);
+      const val = valMatch ? valMatch[1] : '';
+      const label = line.replace(/\*\*[\d,،.٠-٩]+\*\*[\s\S]*/, '').replace(/[*_]/g, '').replace(/[:—–]/g, '').trim();
+      h += '<div class="md-kpi-card ' + type + '">' +
+        '<div class="md-kpi-label">' + escHtml(label) + '</div>' +
+        '<div class="md-kpi-val">' + escHtml(val) + '</div>' +
+      '</div>';
+    });
+    h += '</div>';
+    return h;
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // CHART RENDERING — with instance tracking to prevent memory leaks
+  // ══════════════════════════════════════════════════════════════
+  const _chartInstances = {};  // canvasId -> Chart instance
+
+  function initChartOnCanvas(canvasId, chartData) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas || !chartData) return;
+
+    // Destroy previous Chart instance on same canvas (prevents memory leak)
+    if (_chartInstances[canvasId]) {
+      _chartInstances[canvasId].destroy();
+      delete _chartInstances[canvasId];
+    }
+
+    const ctx = canvas.getContext('2d');
+    const type = chartData.type === 'area' ? 'line' : (chartData.type || 'bar');
+
+    const datasets = (chartData.datasets || []).map(ds => {
+      const obj = {
+        label: ds.label || '',
+        data: ds.data || [],
+        backgroundColor: ds.backgroundColor || ['oklch(0.52 0.20 260)'],
+      };
+      if (type === 'line') {
+        obj.borderColor = ds.borderColor || 'oklch(0.52 0.20 260)';
+        obj.borderWidth = 2.5;
+        obj.tension = 0.35;
+        obj.fill = chartData.type === 'area';
+        obj.pointRadius = 4;
+        obj.pointBackgroundColor = 'white';
+        obj.pointBorderColor = ds.borderColor || 'oklch(0.52 0.20 260)';
+        obj.pointBorderWidth = 2;
+        obj.pointHoverRadius = 6;
+      } else {
+        obj.borderWidth = 0;
+        obj.borderRadius = 6;
+        obj.hoverBorderWidth = 2;
+        obj.hoverBorderColor = 'oklch(0.30 0.15 260)';
+      }
+      return obj;
+    });
+
+    _chartInstances[canvasId] = new Chart(ctx, {
+      type: type,
+      data: { labels: chartData.labels || [], datasets },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            display: ['pie','doughnut'].includes(type),
+            position: 'bottom',
+            rtl: true,
+            labels: { font: { family: 'Segoe UI, SF Arabic, system-ui', size: 11 }, padding: 14 }
+          },
+          tooltip: {
+            rtl: true,
+            backgroundColor: 'oklch(0.20 0.020 260)',
+            titleFont: { family: 'Segoe UI, SF Arabic', size: 12 },
+            bodyFont: { family: 'Segoe UI, SF Arabic', size: 12 },
+            padding: 12,
+            cornerRadius: 8,
+            displayColors: true,
+            callbacks: {
+              label: function(ctx) {
+                const val = ctx.parsed.y !== undefined ? ctx.parsed.y : ctx.parsed;
+                return ctx.dataset.label + ': ' + Number(val).toLocaleString();
+              }
+            }
+          }
+        },
+        scales: !['pie','doughnut'].includes(type) ? {
+          y: {
+            beginAtZero: true,
+            ticks: { callback: v => Number(v).toLocaleString(), font: { size: 11 } },
+            grid: { color: 'oklch(0.93 0.004 250)', drawBorder: false }
+          },
+          x: {
+            ticks: { font: { size: 11 }, maxRotation: 35 },
+            grid: { display: false }
+          }
+        } : undefined,
+        animation: { duration: 900, easing: 'easeOutQuart' }
+      }
+    });
+  }
+
+  function renderChatChart(canvasId, chartData) {
+    initChartOnCanvas(canvasId, chartData);
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // UTILITIES
+  // ══════════════════════════════════════════════════════════════
+  function escHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function escAttr(s) {
+    return String(s).replace(/'/g, "\\'").replace(/"/g, '&quot;');
+  }
+
+  function scrollBottom() {
+    const area = document.getElementById('chat-area');
+    requestAnimationFrame(() => area.scrollTop = area.scrollHeight);
+  }
+
+  function formatNumber(n) {
+    return Number(n).toLocaleString('en-US', { maximumFractionDigits: 0 });
+  }
+
+  function formatCurrency(n) {
+    return Number(n).toLocaleString('en-US', { maximumFractionDigits: 2 });
+  }
+
+  function animateKpiValue(el, end, fmt) {
+    if (end === 0) return;
+    const duration = 900;
+    const startTime = performance.now();
+    function step(now) {
+      const progress = Math.min((now - startTime) / duration, 1);
+      const eased = 1 - Math.pow(1 - progress, 4); // ease-out-quart
+      const current = end * eased;
+      if (fmt === 'currency') el.textContent = formatCurrency(current);
+      else if (fmt === 'percent') el.textContent = current.toFixed(1) + '%';
+      else el.textContent = formatNumber(current);
+      if (progress < 1) requestAnimationFrame(step);
+    }
+    requestAnimationFrame(step);
+  }
+
+  function toggleSql(id, btn) {
+    const block = document.getElementById(id);
+    const isOpen = block.classList.toggle('open');
+    btn.classList.toggle('open', isOpen);
+    btn.setAttribute('aria-expanded', isOpen);
+  }
+
+  function copySql(id) {
+    const code = document.querySelector('#' + id + ' .sql-code').textContent;
+    navigator.clipboard.writeText(code).then(() => showToast('تم النسخ'));
+  }
+
+  async function clearMemory() {
+    try {
+      const r = await fetch(API + '/chat/clear-memory', {
+        method: 'POST',
+        headers: apiHeaders(),
+        body: JSON.stringify({ user_id: 'web_user' })
+      });
+      if (r.ok) {
+        conversationHistory = [];
+        const area = document.getElementById('chat-area');
+        area.innerHTML = '';
+        const empty = document.createElement('div');
+        empty.className = 'empty-state';
+        empty.id = 'empty-state';
+        empty.innerHTML = '<div class="copilot-avatar"><svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg></div>' +
+          '<h2 class="empty-title">المستشار التنفيذي الذكي</h2>' +
+          '<p class="empty-sub">اسأل عن بيانات شركتك بالعربي أو الإنجليزي. أحلل الأرقام وأقدم لك رؤى تنفيذية وتوصيات عملية.</p>' +
+          '<div class="suggestions">' +
+            '<button class="suggestion" onclick="askQuestion(\'لوحة المبيعات\')">لوحة المبيعات</button>' +
+            '<button class="suggestion" onclick="askQuestion(\'إجمالي المبيعات اليوم\')">إجمالي المبيعات اليوم</button>' +
+            '<button class="suggestion" onclick="askQuestion(\'أعلى 5 عملاء في المبيعات\')">أعلى 5 عملاء</button>' +
+            '<button class="suggestion" onclick="askQuestion(\'الإيرادات والمصروفات خلال آخر 6 شهور\')">الإيرادات والمصروفات</button>' +
+          '</div>';
+        area.appendChild(empty);
+        showToast('تم بدء محادثة جديدة');
+      }
+    } catch {
+      showToast('فشل الاتصال');
+    }
+  }
+
+  function exportTableCsv(tableEl, title) {
+    if (!tableEl) return;
+    const rows = tableEl.querySelectorAll('tr');
+    let csv = '﻿';
+    rows.forEach(row => {
+      const cells = row.querySelectorAll('th, td');
+      const line = Array.from(cells).map(c => '"' + c.textContent.replace(/"/g, '""') + '"').join(',');
+      csv += line + '\n';
+    });
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = (title || 'table') + '.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+    showToast('تم تصدير الجدول');
+  }
+
+  function showToast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 2500);
+  }
+
+  // ── Training Modal ────────────────────────────────────────────
+  function openTrainModal() {
+    document.getElementById('train-modal-overlay').classList.add('open');
+    setTimeout(() => document.getElementById('train-report-name').focus(), 80);
+  }
+
+  function closeTrainModal() {
+    document.getElementById('train-modal-overlay').classList.remove('open');
+    document.getElementById('train-report-name').value = '';
+    document.getElementById('train-description').value = '';
+    document.getElementById('train-sql').value = '';
+  }
+
+  function closeTrainModalOutside(e) {
+    if (e.target === document.getElementById('train-modal-overlay')) closeTrainModal();
+  }
+
+  async function submitTraining() {
+    const reportName  = document.getElementById('train-report-name').value.trim();
+    const description = document.getElementById('train-description').value.trim();
+    const sql         = document.getElementById('train-sql').value.trim();
+
+    if (!reportName || !description || !sql) {
+      showToast('يرجى ملء الحقول الثلاثة كاملة');
+      return;
+    }
+
+    const btn     = document.getElementById('train-submit-btn');
+    const spinner = document.getElementById('train-spinner');
+    const label   = document.getElementById('train-submit-label');
+
+    btn.disabled = true;
+    spinner.style.display = 'block';
+    label.textContent = 'جاري الحفظ...';
+
+    try {
+      const res = await fetch(`${API}/learning/train-from-query`, {
+        method: 'POST',
+        headers: apiHeaders(),
+        body: JSON.stringify({ report_name: reportName, description, sql }),
+      });
+      const data = await res.json();
+      if (res.ok && data.status === 'learned') {
+        closeTrainModal();
+        showToast(data.message || '✅ تم تدريب الـ AI على التقرير');
+      } else if (data.status === 'rejected') {
+        showToast(`❌ ${data.message}`);
+      } else {
+        showToast(`❌ ${data.detail || data.message || 'فشل الحفظ'}`);
+      }
+    } catch (err) {
+      showToast('❌ خطأ في الاتصال بالسيرفر');
+    } finally {
+      btn.disabled = false;
+      spinner.style.display = 'none';
+      label.textContent = 'حفظ وتدريب ✓';
+    }
+  }
+
+  function handleKey(e) {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+  }
+
+  function autoResize(el) {
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+  }
+
+  async function checkHealth() {
+    const dot = document.getElementById('status-dot');
+    const label = document.getElementById('status-label');
+    try {
+      const r = await fetch('/health');
+      if (r.ok) { dot.style.background = 'var(--green)'; label.textContent = 'متصل'; }
+      else throw 0;
+    } catch {
+      dot.style.background = 'var(--red)'; label.textContent = 'غير متصل';
+    }
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // PROACTIVE ALERT CENTER
+  // ══════════════════════════════════════════════════════════════
+  let alertPanelOpen = false;
+  let cachedAlerts = [];
+
+  function toggleAlertPanel() {
+    const panel = document.getElementById('alert-panel');
+    alertPanelOpen = !alertPanelOpen;
+    panel.classList.toggle('open', alertPanelOpen);
+    if (alertPanelOpen) refreshAlerts();
+  }
+
+  // Close panel on outside click
+  document.addEventListener('click', (e) => {
+    if (alertPanelOpen && !e.target.closest('.alert-bell')) {
+      alertPanelOpen = false;
+      document.getElementById('alert-panel').classList.remove('open');
+    }
+  });
+
+  async function refreshAlerts() {
+    try {
+      const r = await fetch(API + '/chat/alerts', { headers: apiHeaders() });
+      if (!r.ok) return;
+      const data = await r.json();
+      cachedAlerts = data.alerts || [];
+      renderAlertPanel(cachedAlerts);
+    } catch { /* silent */ }
+  }
+
+  async function pollAlertSummary() {
+    try {
+      const r = await fetch(API + '/chat/alerts/summary', { headers: apiHeaders() });
+      if (!r.ok) return;
+      const summary = await r.json();
+      updateAlertBadge(summary);
+    } catch { /* silent */ }
+  }
+
+  function updateAlertBadge(summary) {
+    const bell = document.getElementById('alert-bell');
+    const badge = document.getElementById('alert-badge');
+    const unack = summary.unacknowledged || 0;
+    const critical = summary.critical || 0;
+    const total = summary.total || 0;
+
+    badge.textContent = unack > 0 ? unack : '';
+    badge.dataset.count = unack;
+
+    bell.classList.toggle('has-alerts', total > 0);
+    bell.classList.toggle('has-critical', critical > 0);
+  }
+
+  function renderAlertPanel(alerts) {
+    const list = document.getElementById('alert-panel-list');
+    if (!alerts || alerts.length === 0) {
+      list.innerHTML = '<div class="alert-empty"><div class="alert-empty-icon">&#x2705;</div><div>لا توجد تنبيهات حالياً</div><div style="font-size:11px;color:var(--text-dim);margin-top:4px;">الوضع التشغيلي مستقر</div></div>';
+      return;
+    }
+
+    let html = '';
+    alerts.forEach(a => {
+      const sevDot = '<div class="alert-severity-dot ' + a.severity + '"></div>';
+      const timeAgo = formatTimeAgo(a.timestamp);
+      html += '<div class="alert-item">' +
+        sevDot +
+        '<div class="alert-item-body">' +
+          '<div class="alert-item-title">' + escHtml(a.title) + '</div>' +
+          '<div class="alert-item-msg">' + escHtml(a.message) + '</div>' +
+          (a.recommendation ? '<div class="alert-item-rec">' + escHtml(a.recommendation) + '</div>' : '') +
+          '<div class="alert-item-meta">' +
+            '<span>' + escHtml(a.severity_label) + '</span>' +
+            '<span>' + escHtml(a.category_label) + '</span>' +
+            '<span>' + timeAgo + '</span>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    });
+    list.innerHTML = html;
+  }
+
+  function formatTimeAgo(ts) {
+    const diff = Math.floor(Date.now() / 1000 - ts);
+    if (diff < 60) return 'الآن';
+    if (diff < 3600) return Math.floor(diff / 60) + ' دقيقة';
+    if (diff < 86400) return Math.floor(diff / 3600) + ' ساعة';
+    return Math.floor(diff / 86400) + ' يوم';
+  }
+
+  async function acknowledgeAllAlerts() {
+    try {
+      await fetch(API + '/chat/alerts/acknowledge', {
+        method: 'POST',
+        headers: apiHeaders(),
+        body: JSON.stringify({})
+      });
+      await pollAlertSummary();
+      showToast('تم تحديث التنبيهات');
+    } catch { /* silent */ }
+  }
+
+  // Render proactive alerts in greeting response
+  function renderProactiveAlerts(alerts) {
+    if (!alerts || alerts.length === 0) return '';
+    let html = '<div class="proactive-greeting-alerts">';
+    html += '<div class="pa-title">&#x26A1; تنبيهات تحتاج اهتمامك</div>';
+    alerts.forEach(a => {
+      const icon = { critical: '&#x1F534;', warning: '&#x1F7E1;', info: '&#x1F535;', opportunity: '&#x1F7E2;' }[a.severity] || '&#x1F535;';
+      html += '<div class="pa-item"><span>' + icon + '</span><span>' + escHtml(a.title) + ': ' + escHtml(a.message) + '</span></div>';
+    });
+    html += '</div>';
+    return html;
+  }
+
+  // ══════════════════════════════════════════════════════════════
+  // INIT
+  // ══════════════════════════════════════════════════════════════
+  (function init() {
+    checkHealth();
+    setInterval(checkHealth, 30000);
+    // Proactive alert polling
+    pollAlertSummary();
+    setInterval(pollAlertSummary, 60000);
+    document.getElementById('question-input').focus();
+  })();
+</script>
+</body>
+</html>

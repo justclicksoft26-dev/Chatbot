@@ -1,0 +1,3 @@
+reset server : uvicorn app:app --reload  
+
+remove cache : py -3 -c "import response_cache; response_cache.invalidate_all(); print('done')"

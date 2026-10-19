@@ -1,0 +1,37 @@
+{
+  "CASH_INST exist?": {
+    "method": "error",
+    "rows": 0,
+    "error": "حدث خطأ — حاول إعادة صياغة السؤال بشكل أوضح."
+  },
+  "ORDERS exist?": {
+    "method": "error",
+    "rows": 0,
+    "error": "حدث خطأ — حاول إعادة صياغة السؤال بشكل أوضح."
+  },
+  "INV_EFFECTS exist?": {
+    "method": "error",
+    "rows": 0,
+    "error": "حدث خطأ — حاول إعادة صياغة السؤال بشكل أوضح."
+  },
+  "DOCUMENTS exist?": {
+    "method": "error",
+    "rows": 0,
+    "error": "حدث خطأ — حاول إعادة صياغة السؤال بشكل أوضح."
+  },
+  "MAIN_INV_EFFECTS?": {
+    "method": "error",
+    "rows": 0,
+    "error": "حدث خطأ — حاول إعادة صياغة السؤال بشكل أوضح."
+  },
+  "VOUCHERS_SAL_PURCH?": {
+    "method": "error",
+    "rows": 0,
+    "error": "حدث خطأ — حاول إعادة صياغة السؤال بشكل أوضح."
+  },
+  "ACC_INST exist?": {
+    "method": "error",
+    "rows": 0,
+    "error": "حدث خطأ — حاول إعادة صياغة السؤال بشكل أوضح."
+  }
+}

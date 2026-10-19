@@ -1,0 +1,395 @@
+<style>
+/* ── Markdown Rendering (JustClick AI) ─────────────────────── */
+.jc-p { margin: 5px 0; line-height: 1.8; font-size: 14px; }
+.jc-p strong { font-weight: 700; }
+
+.jc-h3 {
+  font-size: 15px; font-weight: 700;
+  margin: 14px 0 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.jc-h4 {
+  font-size: 14px; font-weight: 700;
+  margin: 10px 0 4px;
+}
+
+.jc-list {
+  margin: 8px 0; padding-right: 6px;
+  list-style: none;
+}
+
+.jc-list li {
+  position: relative;
+  padding: 4px 18px 4px 0;
+  line-height: 1.7; font-size: 13.5px;
+}
+
+.jc-list li::before {
+  content: '';
+  position: absolute; right: 0; top: 13px;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: #0ea5e9;
+}
+
+.jc-olist {
+  margin: 8px 0; padding-right: 6px;
+  list-style: none; counter-reset: jc-ol;
+}
+
+.jc-olist li {
+  position: relative;
+  padding: 4px 28px 4px 0;
+  line-height: 1.7; font-size: 13.5px;
+  counter-increment: jc-ol;
+}
+
+.jc-olist li::before {
+  content: counter(jc-ol);
+  position: absolute; right: 0; top: 5px;
+  width: 20px; height: 20px;
+  border-radius: 50%;
+  background: rgba(14, 165, 233, 0.12);
+  color: #0ea5e9;
+  font-size: 11px; font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+}
+
+.jc-card {
+  background: #f8f9fa;
+  border: 1px solid #e0e0e0;
+  border-radius: 10px;
+  padding: 6px 18px;
+  margin: 10px 0;
+}
+
+.jc-card-field {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid #f0f0f0;
+  gap: 12px;
+}
+
+.jc-card-field:last-child { border-bottom: none; }
+
+.jc-card-label {
+  font-size: 13px; font-weight: 600;
+  color: #666; flex-shrink: 0;
+}
+
+.jc-card-value {
+  font-size: 14px; font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: left; direction: ltr;
+}
+
+.jc-card-value.text-val {
+  direction: rtl; text-align: right; font-weight: 600;
+}
+
+.jc-table-wrap {
+  margin: 10px 0;
+  overflow-x: auto;
+  border-radius: 8px;
+  border: 1px solid #e0e0e0;
+}
+
+.jc-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+.jc-table th {
+  background: #f0f2f5;
+  font-weight: 700; font-size: 11.5px;
+  color: #666;
+  padding: 8px 12px;
+  text-align: right;
+  white-space: nowrap;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.jc-table td {
+  padding: 7px 12px;
+  border-bottom: 1px solid #f0f0f0;
+  white-space: nowrap;
+}
+
+.jc-table tbody tr:nth-child(even) td { background: #fafafa; }
+.jc-table tr:last-child td { border-bottom: none; }
+.jc-table tr:hover td { background: #f0f4ff; }
+
+.jc-table td.num {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  direction: ltr;
+  text-align: left;
+}
+
+.jc-hr {
+  border: none;
+  border-top: 1px solid #e0e0e0;
+  margin: 12px 0;
+}
+
+.jc-summary {
+  margin: 4px 0 0;
+  padding: 10px 14px;
+  background: rgba(14, 165, 233, 0.08);
+  border-radius: 10px;
+  font-size: 13.5px;
+  line-height: 1.75;
+}
+</style>
+
+<div class="ai-fab">
+    <span class="ai-badge"></span>
+    <svg width="35" height="35" viewBox="0 0 24 24" fill="white"><path d="M20,2H4C2.9,2,2,2.9,2,4v18l4-4h14c1.1,0,2-0.9,2-2V4C22,2.9,21.1,2,20,2z M17,11h-2v2h2V11z M13,11h-2v2h2V11z M9,11H7v2h2V11z"/></svg>
+</div>
+<div class="ai-window" id="aiWindow">
+    <div class="ai-header">
+        <div style="display:flex;align-items:center;gap:10px;">
+            <div style="width:40px;height:40px;background:linear-gradient(135deg,#0ea5e9,#38bdf8);border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 10px rgba(0,0,0,0.2);">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="white">
+                    <path d="M12 2C10.34 2 9 3.34 9 5C9 5.35 9.06 5.69 9.17 6H6C4.34 6 3 7.34 3 9V15C3 16.66 4.34 18 6 18H7V21L11 18H13L17 21V18H18C19.66 18 21 16.66 21 15V9C21 7.34 19.66 6 18 6H14.83C14.94 5.69 15 5.35 15 5C15 3.34 13.66 2 12 2ZM8 10C8.55 10 9 10.45 9 11C9 11.55 8.55 12 8 12C7.45 12 7 11.55 7 11C7 10.45 7.45 10 8 10ZM16 10C16.55 10 17 10.45 17 11C17 11.55 16.55 12 16 12C15.45 12 15 11.55 15 11C15 10.45 15.45 10 16 10Z"/>
+                </svg>
+            </div>
+            <div style="font-weight:bold;">المساعد الذكي JC</div>
+        </div>
+        <div style="cursor:pointer;" onclick="toggleChat()">&#10005;</div>
+    </div>
+    <div class="ai-body" id="chatBody"></div>
+    <div class="ai-footer">
+        <input type="text" id="chatInput" class="form-input" placeholder="اكتب ردك هنا..." style="border-radius:20px;" onkeypress="handleEnter(event)">
+        <button type="button" class="btn btn-primary" style="padding:0 12px; border-radius:50%;" onclick="sendMsg()">&#10148;</button>
+    </div>
+</div>
+
+<script>
+var USER_NAME = '&G_REAL_NAME.';
+var chatStep = 0;
+
+/* ══════════════════════════════════════════════════════════════
+   Markdown Renderer — same output as the main JustClick frontend
+   ══════════════════════════════════════════════════════════════ */
+
+function jcEsc(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function jcBold(t) {
+    return t.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+}
+
+function jcIsKv(line) {
+    if (!line || line.startsWith('|') || line.startsWith('#') ||
+        /^[-*]\s/.test(line) || /^\d+[.)]\s/.test(line)) return false;
+    if (/^[-*_]{3,}$/.test(line)) return false;
+    var idx = line.indexOf(':');
+    if (idx <= 0 || idx >= line.length - 1) return false;
+    return line.substring(0, idx).trim().length < 35;
+}
+
+function jcCard(lines) {
+    var h = '<div class="jc-card">';
+    for (var k = 0; k < lines.length; k++) {
+        var idx = lines[k].indexOf(':');
+        var label = lines[k].substring(0, idx).trim();
+        var value = lines[k].substring(idx + 1).trim();
+        var isNum = /^[\d,.\-\s%]+$/.test(value.replace(/[^\d,.\-%\s]/g, ''));
+        h += '<div class="jc-card-field">' +
+            '<span class="jc-card-label">' + jcEsc(label) + '</span>' +
+            '<span class="jc-card-value' + (isNum ? '' : ' text-val') + '">' +
+            jcBold(jcEsc(value)) + '</span></div>';
+    }
+    return h + '</div>';
+}
+
+function jcTable(tLines) {
+    if (tLines.length < 2)
+        return tLines.map(function(l) { return '<p class="jc-p">' + jcEsc(l) + '</p>'; }).join('');
+
+    var parse = function(row) {
+        return row.replace(/^\||\|$/g, '').split('|').map(function(c) { return c.trim(); });
+    };
+
+    var headers = parse(tLines[0]);
+    var start = 1;
+    if (tLines.length > 1 && /^[\s|:-]+$/.test(tLines[1])) start = 2;
+
+    var rows = [];
+    for (var j = start; j < tLines.length; j++) {
+        var cells = parse(tLines[j]);
+        if (cells.length > 0 && cells.some(function(c) { return c; })) rows.push(cells);
+    }
+
+    var h = '<div class="jc-table-wrap"><table class="jc-table"><thead><tr>';
+    headers.forEach(function(hd) { h += '<th>' + jcEsc(hd) + '</th>'; });
+    h += '</tr></thead><tbody>';
+    rows.forEach(function(row) {
+        h += '<tr>';
+        row.forEach(function(cell) {
+            var isNum = /^[\d,.\-\s]+$/.test(cell) && cell.length > 0;
+            h += '<td class="' + (isNum ? 'num' : '') + '">' + jcEsc(cell) + '</td>';
+        });
+        h += '</tr>';
+    });
+    return h + '</tbody></table></div>';
+}
+
+function renderMarkdown(text) {
+    if (!text) return '';
+    var lines = text.split('\n');
+    var html = '', i = 0, afterHr = false;
+
+    while (i < lines.length) {
+        var line = lines[i].trim();
+        if (!line) { i++; continue; }
+
+        // HR
+        if (/^[-*_]{3,}$/.test(line)) {
+            afterHr = true; html += '<hr class="jc-hr">'; i++; continue;
+        }
+        // Headers
+        if (line.startsWith('### ')) {
+            html += '<h4 class="jc-h4">' + jcBold(jcEsc(line.slice(4))) + '</h4>';
+            i++; afterHr = false; continue;
+        }
+        if (line.startsWith('## ')) {
+            html += '<h3 class="jc-h3">' + jcBold(jcEsc(line.slice(3))) + '</h3>';
+            i++; afterHr = false; continue;
+        }
+        // Table
+        if (line.startsWith('|')) {
+            var tl = [];
+            while (i < lines.length && lines[i].trim().startsWith('|')) { tl.push(lines[i].trim()); i++; }
+            html += jcTable(tl); afterHr = false; continue;
+        }
+        // Bullet list
+        if (/^[-*]\s+/.test(line)) {
+            var items = [];
+            while (i < lines.length && /^\s*[-*]\s+/.test(lines[i])) {
+                items.push(lines[i].trim().replace(/^[-*]\s+/, '')); i++;
+            }
+            html += '<ul class="jc-list">' + items.map(function(it) {
+                return '<li>' + jcBold(jcEsc(it)) + '</li>';
+            }).join('') + '</ul>';
+            afterHr = false; continue;
+        }
+        // Numbered list
+        if (/^\d+[.)]\s+/.test(line)) {
+            var items = [];
+            while (i < lines.length && /^\s*\d+[.)]\s+/.test(lines[i])) {
+                items.push(lines[i].trim().replace(/^\d+[.)]\s+/, '')); i++;
+            }
+            html += '<ol class="jc-olist">' + items.map(function(it) {
+                return '<li>' + jcBold(jcEsc(it)) + '</li>';
+            }).join('') + '</ol>';
+            afterHr = false; continue;
+        }
+        // Key-value card
+        if (jcIsKv(line)) {
+            var kvl = [];
+            while (i < lines.length && lines[i].trim() && jcIsKv(lines[i].trim())) {
+                kvl.push(lines[i].trim()); i++;
+            }
+            if (kvl.length >= 2) { html += jcCard(kvl); afterHr = false; continue; }
+            var cls = afterHr ? 'jc-summary' : 'jc-p';
+            html += '<p class="' + cls + '">' + jcBold(jcEsc(kvl[0])) + '</p>';
+            afterHr = false; continue;
+        }
+        // Paragraph
+        var cls = afterHr ? 'jc-summary' : 'jc-p';
+        html += '<p class="' + cls + '">' + jcBold(jcEsc(line)) + '</p>';
+        afterHr = false; i++;
+    }
+    return html;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   Chat Logic
+   ══════════════════════════════════════════════════════════════ */
+
+function addMessage(txt, sender) {
+    var body = document.getElementById('chatBody');
+    var div = document.createElement('div');
+    div.className = 'msg ' + (sender === 'user' ? 'msg-user' : 'msg-bot');
+
+    if (sender === 'user') {
+        div.innerText = txt;
+    } else {
+        div.innerHTML = renderMarkdown(txt);
+    }
+
+    body.appendChild(div);
+    body.scrollTop = body.scrollHeight;
+}
+
+function handleEnter(e) {
+    if (e.key === 'Enter') sendMsg();
+}
+
+document.getElementById('chatInput').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') { e.preventDefault(); sendMsg(); }
+});
+
+async function sendMsg() {
+    var inp = document.getElementById('chatInput');
+    var txt = inp.value.trim();
+    if (!txt) return;
+
+    addMessage(txt, 'user');
+    inp.value = '';
+    inp.disabled = true;
+
+    try {
+        var requestBody = {
+            user: "&APP_USER.",
+            question: txt
+        };
+
+        var response = await fetch('http://192.168.1.2:8000/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestBody)
+        });
+
+        if (!response.ok) throw new Error('HTTP error! Status: ' + response.status);
+
+        var data = await response.json();
+        var reply = data.reply || "لا توجد إجابة متاحة حالياً.";
+
+        setTimeout(function() { addMessage(reply, 'bot'); }, 300);
+
+    } catch (err) {
+        console.error('Error:', err);
+        addMessage("حدث خطأ في الاتصال بالمساعد. جرب تاني.", 'bot');
+    } finally {
+        inp.disabled = false;
+    }
+}
+
+function toggleChat() {
+    var w = document.getElementById('aiWindow');
+    var badge = document.querySelector('.ai-badge');
+    if (badge) badge.style.display = 'none';
+
+    var currentDisplay = window.getComputedStyle(w).display;
+    w.style.display = (currentDisplay === 'none') ? 'flex' : 'none';
+
+    if (chatStep === 0) {
+        addMessage('أهلاً بك يا ' + USER_NAME + '! 👋', 'bot');
+        chatStep = 1;
+    }
+}
+
+document.addEventListener("DOMContentLoaded", function() {
+    var fab = document.querySelector(".ai-fab");
+    if (fab) fab.addEventListener("click", toggleChat);
+});
+</script>

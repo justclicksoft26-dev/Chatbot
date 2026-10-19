@@ -1,0 +1,19 @@
+.env
+*.env
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+*.db
+data/
+
+# Large Oracle APEX export files — not part of chatbot source
+f103.sql
+*.apex
+
+# Logs
+*.log
