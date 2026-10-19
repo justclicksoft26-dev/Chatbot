@@ -23,6 +23,7 @@ def test_only_the_entry_points_live_at_the_root():
 
 def test_no_generated_files_are_tracked():
     bad = [f for f in tracked() if f.endswith((".log", ".pyc")) or "__pycache__" in f
+           or f.split("/")[-1].startswith(".coverage") or "htmlcov/" in f
            or ("/" not in f and f.endswith(".json"))]
     assert bad == []
 
