@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from infra.db import execute_read_query as execute_query
 from llm.llm_client import _call_llm
 from nlu.query_templates import resolve_flags as _resolve_flag_placeholders
+from security import rbac
 from security.scope import prepare_sql
 
 log = logging.getLogger("executive_reports")
@@ -134,6 +135,14 @@ _EXECUTIVE_PATTERNS = re.compile(
     r"ملخص\s*(تنفيذي|إداري|اداري|للإدارة|للادارة))",
     re.IGNORECASE
 )
+
+
+def report_allowed(user_id: str, report_type: str) -> bool:
+    """A report belongs to a business domain; users whose role is enforced need access to it."""
+    domain = REPORT_TYPES.get(report_type, {}).get("domain", "")
+    if domain not in rbac.KNOWN_DOMAINS or not rbac.is_enforced(user_id):
+        return True
+    return rbac.check_domain_access(user_id, domain)
 
 
 def detect_report_intent(question: str) -> Optional[str]:

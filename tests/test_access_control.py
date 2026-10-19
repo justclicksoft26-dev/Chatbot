@@ -444,3 +444,9 @@ def test_clear_memory_clears_the_verified_users_session(client, jwt_mode, monkey
     monkeypatch.setattr(chat_router, "clear_session", cleared.append)
     client.post("/chat/clear-memory", json={"user_id": "victim"}, headers=bearer("alice", role="viewer", company="1"))
     assert cleared == ["alice"]
+
+
+def test_executive_report_export_needs_the_report_domain(client):
+    rbac.assign_role("wh", "warehouse", company_code="1")
+    r = client.post("/exports/report", json={"report_type": "financial_summary", "company_code": "1", "user_id": "wh"})
+    assert r.status_code == 403

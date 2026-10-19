@@ -13,7 +13,7 @@ from reporting.export_engine import (
 )
 from reporting.executive_reports import (
     generate_executive_report, detect_report_intent,
-    format_report_for_chat, REPORT_TYPES, ExecutiveReport,
+    format_report_for_chat, REPORT_TYPES, ExecutiveReport, report_allowed,
 )
 from routers.auth import caller_id, ensure_company_access
 from security import rbac
@@ -116,6 +116,9 @@ async def generate_report(req: ExecutiveReportRequest, request: Request):
             status_code=400,
             detail=f"نوع التقرير غير مدعوم: {req.report_type}. الأنواع المتاحة: {', '.join(REPORT_TYPES.keys())}",
         )
+
+    if not report_allowed(user_id, req.report_type):
+        raise HTTPException(status_code=403, detail="ليس لديك صلاحية على هذا المجال.")
 
     try:
         report = await generate_executive_report(

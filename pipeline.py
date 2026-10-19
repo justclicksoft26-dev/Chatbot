@@ -53,7 +53,7 @@ from erp_actions.store import get_user_pending, save_action, get_last_undoable_a
 from erp_actions.workflows import is_workflow_query, get_pending_approvals, get_request_status, get_approval_summary
 from erp_actions.apex_nav import detect_navigation_intent, find_pages
 from reporting.export_engine import detect_export_intent, ExportRequest, generate_export, ExportFormat
-from reporting.executive_reports import detect_report_intent, generate_executive_report, format_report_for_chat
+from reporting.executive_reports import detect_report_intent, generate_executive_report, format_report_for_chat, report_allowed
 
 
 def _permission_fingerprint(perms) -> str:
@@ -777,6 +777,8 @@ async def process_question(
 
     # ── Operator: Executive Report Detection ──
     report_type = detect_report_intent(question)
+    if report_type and not report_allowed(user_id, report_type):
+        return PipelineResult(answer="ليس لديك صلاحية على هذا المجال.", method="error")
     if report_type:
         log.info(f"[PIPELINE] Executive report: {report_type}")
         result = await _handle_executive_report(
@@ -1771,43 +1773,28 @@ async def _safe_format_answer_async(question, data, sql, history=None, truncated
     return _format_data_as_table(data, question)
 
 
+_PERIOD_EMPTY_RESPONSES = (
+    (("هذا الشهر", "this month", "الشهر ده", "الشهر الحالي"),
+     "لم تُسجل بيانات لهذا الشهر بعد. جرّب الاطلاع على الشهر الماضي."),
+    (("الأسبوع الماضي", "الأسبوع اللي فات", "last week"),
+     "لا توجد بيانات مسجلة الأسبوع الماضي — الاستعلام صحيح، لم تُسجل حركات في تلك الفترة."),
+    (("الأسبوع ده", "الأسبوع الحالي", "this week"),
+     "لا توجد بيانات مسجلة هذا الأسبوع حتى الآن. يمكنك السؤال عن الأسبوع الماضي."),
+)
+
+
 def _smart_empty_response(question: str) -> str:
-    """Generate a contextual, positive empty-state response."""
+    """A contextual empty-state answer: the active profile's rules first, then generic period hints."""
     q_lower = question.lower()
 
-    # Time-specific empty states
-    if any(kw in q_lower for kw in ["اليوم", "today", "النهارده", "انهارده", "نهارده"]):
-        return "لا توجد أنشطة مسجلة اليوم حتى الآن — الاستعلام صحيح، لم يتم إدخال بيانات بعد. يمكنك السؤال عن أمس أو الشهر الحالي."
-    if any(kw in q_lower for kw in ["أمس", "امبارح", "yesterday"]):
-        return "لا توجد أنشطة مسجلة أمس — الاستعلام صحيح، لم يتم تسجيل بيانات في ذلك اليوم. جرّب السؤال عن الأسبوع الماضي أو الشهر الحالي."
-    if any(kw in q_lower for kw in ["هذا الشهر", "this month", "الشهر ده", "الشهر الحالي"]):
-        return "لم تُسجل بيانات لهذا الشهر بعد. جرّب الاطلاع على الشهر الماضي."
-    if any(kw in q_lower for kw in ["الأسبوع الماضي", "الأسبوع اللي فات", "last week"]):
-        return "لا توجد أنشطة مسجلة الأسبوع الماضي — الاستعلام صحيح، لم يتم تسجيل بيانات في تلك الفترة."
-    if any(kw in q_lower for kw in ["الأسبوع ده", "الأسبوع الحالي", "this week"]):
-        return "لا توجد أنشطة مسجلة هذا الأسبوع حتى الآن. يمكنك السؤال عن الأسبوع الماضي."
-
-    # Activity type specific empty states
-    if any(kw in q_lower for kw in ["واتساب", "whatsapp", "وتساب"]):
-        return "لا توجد رسائل واتساب مسجلة في هذه الفترة — الاستعلام صحيح. جرّب توسيع النطاق الزمني أو السؤال عن أنواع أنشطة أخرى."
-    if any(kw in q_lower for kw in ["فولو أب", "فولو", "متابعة", "follow"]):
-        return "لا توجد متابعات مسجلة في هذه الفترة — الاستعلام صحيح. جرّب توسيع النطاق الزمني."
-    if any(kw in q_lower for kw in ["مكالمة", "كول", "call", "اتصال"]):
-        return "لا توجد مكالمات مسجلة في هذه الفترة — الاستعلام صحيح. جرّب توسيع النطاق الزمني."
-
-    # Name search empty states
+    for keywords, _kind, text in profiles.part("suggestions").EMPTY_STATE_RULES:
+        if any(kw in q_lower for kw in keywords):
+            return f"{text}."
+    for keywords, text in _PERIOD_EMPTY_RESPONSES:
+        if any(kw in q_lower for kw in keywords):
+            return text
     if any(kw in q_lower for kw in ["اسمه", "اسمها", "يسمى", "named", "مثل"]):
         return "لم أجد بيانات بهذا الاسم. جرّب جزء من الاسم أو التأكد من الاسم الصحيح."
-
-    # Positive empty states (no results = good news)
-    if any(kw in q_lower for kw in ["متأخر", "overdue", "مديون"]):
-        return "لا توجد مديونيات متأخرة — وضع التحصيل ممتاز."
-    if any(kw in q_lower for kw in ["مرتجع", "return"]):
-        return "لا توجد مرتجعات في هذه الفترة — مؤشر إيجابي على جودة المبيعات."
-    if any(kw in q_lower for kw in ["منخفض", "نفاد", "أقل من"]):
-        return "جميع الأصناف بمستويات مخزون كافية — لا توجد تنبيهات حالياً."
-
-    # Default with suggestion
     return "لم أجد بيانات مطابقة. الاستعلام صحيح لكن لا توجد سجلات في قاعدة البيانات تطابق معايير السؤال."
 
 

@@ -290,3 +290,19 @@ async def test_relative_time_follows_an_explicit_follow_up(world):
 async def test_stock_balance_plural_is_understood(world):
     await ask("رصيد المخازن")
     assert "RASEED" in world.db.last_sql
+
+
+async def test_executive_report_needs_access_to_its_domain(world, monkeypatch):
+    from reporting import executive_reports as er
+    rbac.assign_role("wh", "warehouse", company_code="1")          # inventory only
+    called = []
+
+    async def fake(**kwargs):
+        called.append(kwargs)
+        raise RuntimeError("must not run")
+    monkeypatch.setattr(pipeline, "generate_executive_report", fake)
+    monkeypatch.setattr(pipeline, "detect_report_intent", lambda q: "financial_summary")
+    r = await ask("تقرير تنفيذي", user="wh")
+    assert r.method == "error" and "المجال" in r.answer and called == []
+    assert er.report_allowed("wh", "inventory_status") and not er.report_allowed("wh", "financial_summary")
+    assert er.report_allowed("nobody", "financial_summary")          # unknown users are not enforced (api_key mode)
