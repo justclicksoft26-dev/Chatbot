@@ -3,8 +3,8 @@ import time
 
 import pytest
 
-import cache
-import response_cache
+from infra import cache
+from infra import response_cache
 
 
 @pytest.fixture

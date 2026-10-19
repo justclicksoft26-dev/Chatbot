@@ -12,14 +12,14 @@ from pydantic import BaseModel, field_validator
 from typing import List, Optional
 
 from pipeline import process_question, PipelineResult
-from llm_client import get_usage, _get_provider, set_provider
-from sql_safety import get_audit_log, get_audit_stats
-from memory import get_session_stats, clear_session, get_session
-from schema_loader import get_schema_context
-from query_templates import list_templates
-from cache import get_all_stats as get_cache_stats, invalidate_all, sql_cache, dash_cache
-from company_manager import get_user_companies
-import rbac as _rbac
+from llm.llm_client import get_usage, _get_provider, set_provider
+from security.sql_safety import get_audit_log, get_audit_stats
+from infra.memory import get_session_stats, clear_session, get_session
+from nlu.schema_loader import get_schema_context
+from nlu.query_templates import list_templates
+from infra.cache import get_all_stats as get_cache_stats, invalidate_all, sql_cache, dash_cache
+from security.company_manager import get_user_companies
+from security import rbac as _rbac
 from routers.schemas import ScopeValue
 
 log = logging.getLogger("chat")
@@ -112,7 +112,7 @@ async def chat(req: ChatRequest, request: Request):
 
         # Audit log
         try:
-            from audit_log import log_interaction
+            from security.audit_log import log_interaction
             log_interaction(
                 user_id=effective_user_id,
                 question=req.question,
@@ -298,7 +298,7 @@ async def cache_invalidate(req: CacheInvalidateRequest):
     if req.tier == "all":
         counts = invalidate_all()
         try:
-            import response_cache as _rc
+            from infra import response_cache as _rc
             counts["response"] = _rc.invalidate_all()
         except Exception:
             pass
@@ -308,7 +308,7 @@ async def cache_invalidate(req: CacheInvalidateRequest):
         counts = {"dashboards": dash_cache.invalidate()}
     elif req.tier == "response":
         try:
-            import response_cache as _rc
+            from infra import response_cache as _rc
             counts = {"response": _rc.invalidate_all()}
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
@@ -340,8 +340,8 @@ async def schema_debug(question: str = ""):
 
     Example: GET /chat/schema-debug?question=أعلى 5 عملاء
     """
-    from schema_loader import get_schema_debug_info
-    from cache import schema_cache, make_schema_key
+    from nlu.schema_loader import get_schema_debug_info
+    from infra.cache import schema_cache, make_schema_key
 
     # Check cache BEFORE calling get_schema_debug_info (which may populate it)
     cache_hit = False
@@ -359,7 +359,7 @@ async def reload_schema():
     Use this after editing justclick_comments.sql to apply changes immediately
     without waiting for the 5-minute cache TTL or the hot-reload mtime check.
     """
-    from schema_loader import force_reload_schema
+    from nlu.schema_loader import force_reload_schema
     result = force_reload_schema()
     log.info(f"[SCHEMA] force-reloaded via POST /chat/reload-schema: {result}")
     return {"status": "ok", **result}

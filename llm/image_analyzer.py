@@ -122,7 +122,7 @@ async def analyze_image(
 
         # Track token usage
         if response.usage_metadata:
-            from llm_client import _track_usage
+            from llm.llm_client import _track_usage
             _track_usage(
                 response.usage_metadata.prompt_token_count or 0,
                 response.usage_metadata.candidates_token_count or 0,

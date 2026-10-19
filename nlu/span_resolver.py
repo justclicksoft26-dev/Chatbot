@@ -20,9 +20,9 @@ Honest boundary (provable, see test_span_resolver.py):
 """
 from __future__ import annotations
 
-import semantic_registry as registry
-import lexical_layer
-from lexical_layer import UNRESOLVED
+from nlu import semantic_registry as registry
+from nlu import lexical_layer
+from nlu.lexical_layer import UNRESOLVED
 
 
 def resolve_span(column: str, span: str):

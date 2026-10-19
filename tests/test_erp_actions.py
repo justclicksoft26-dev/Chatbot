@@ -112,7 +112,7 @@ async def test_enrich_plan_with_current_values(monkeypatch):
         assert params["itemid"] == "5" and params["company_code"] == "1"
         return [{"itemname": "كرسي", "sellprice": 180}]
 
-    import db
+    from infra import db
     monkeypatch.setattr(db, "execute_read_query", fake_query)
     await planner.enrich_plan_with_current_values(plan, "1")
     assert plan.current_values == {"ITEMNAME": "كرسي", "SELLPRICE": 180}
@@ -124,7 +124,7 @@ async def test_enrich_survives_db_failure(monkeypatch):
     async def boom(*a, **k):
         raise RuntimeError("db down")
 
-    import db
+    from infra import db
     monkeypatch.setattr(db, "execute_read_query", boom)
     await planner.enrich_plan_with_current_values(plan, "1")
     assert plan.current_values == {}
@@ -205,7 +205,7 @@ async def test_record_exists_uses_bind_variables(monkeypatch):
         seen["sql"], seen["params"] = sql, params
         return [{"CUST_NAME": "x"}]
 
-    import db
+    from infra import db
     monkeypatch.setattr(db, "execute_read_query", fake_query)
     plan = make_plan("update_customer", custid="1' OR '1'='1", cust_name="شركة")
     assert await validator.validate_record_exists(plan) is None
@@ -217,7 +217,7 @@ async def test_record_exists_reports_missing_record(monkeypatch):
     async def empty(sql, params=None):
         return []
 
-    import db
+    from infra import db
     monkeypatch.setattr(db, "execute_read_query", empty)
     msg = await validator.validate_record_exists(make_plan("update_customer", custid="5", cust_name="شركة"))
     assert "5" in msg

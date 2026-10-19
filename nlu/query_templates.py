@@ -87,7 +87,7 @@ def _resolve_flag_placeholders(sql: str) -> str:
     """COMMENT-FIRST: replace every {{flag:COLUMN:label}} with the value the
     COMMENTS assign to that label. Comments are the only source of the value.
     """
-    from schema_loader import resolve_flag
+    from nlu.schema_loader import resolve_flag
 
     def _repl(m):
         col, label = m.group(1), m.group(2).strip()

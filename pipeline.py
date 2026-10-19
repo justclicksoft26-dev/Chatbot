@@ -18,24 +18,24 @@ logging.basicConfig(level=logging.INFO, handlers=[_handler])
 from dataclasses import dataclass, field
 from typing import Optional
 
-from intent_classifier import classify_intent, Intent
-from query_templates import find_template, render_template, QueryTemplate
-from sql_safety import validate_sql, log_query, SafetyResult
-from memory import (
+from nlu.intent_classifier import classify_intent, Intent
+from nlu.query_templates import find_template, render_template, QueryTemplate
+from security.sql_safety import validate_sql, log_query, SafetyResult
+from infra.memory import (
     get_session, add_user_turn, add_assistant_turn,
     get_history_messages, get_context_entities,
 )
-from schema_loader import get_relevant_schema
-from llm_client import generate_sql, format_answer, _call_llm, generate_sql_async, format_answer_async
-from db import execute_read_query as execute_query  # SELECT-only pool; DML pool stays in erp_actions
-from dashboard_engine import find_dashboard_by_query, execute_dashboard
-from cache import (
+from nlu.schema_loader import get_relevant_schema
+from llm.llm_client import generate_sql, format_answer, _call_llm, generate_sql_async, format_answer_async
+from infra.db import execute_read_query as execute_query  # SELECT-only pool; DML pool stays in erp_actions
+from reporting.dashboard_engine import find_dashboard_by_query, execute_dashboard
+from infra.cache import (
     sql_cache, dash_cache, schema_cache,
     make_sql_key, make_dash_key, make_schema_key,
 )
-import rbac
-from company_manager import inject_company_filter, validate_company_access
-from copilot import (
+from security import rbac
+from security.company_manager import inject_company_filter, validate_company_access
+from reporting.copilot import (
     generate_suggestions, generate_insights, auto_generate_chart,
     COPILOT_GREETING, COPILOT_HELP, GREETING_SUGGESTIONS,
 )
@@ -49,8 +49,8 @@ from erp_actions.executor import confirm_and_execute, reject_action
 from erp_actions.store import get_user_pending, save_action, get_last_undoable_action
 from erp_actions.workflows import is_workflow_query, get_pending_approvals, get_request_status, get_approval_summary
 from erp_actions.apex_nav import detect_navigation_intent, find_pages
-from export_engine import detect_export_intent, ExportRequest, generate_export, ExportFormat
-from executive_reports import detect_report_intent, generate_executive_report, format_report_for_chat
+from reporting.export_engine import detect_export_intent, ExportRequest, generate_export, ExportFormat
+from reporting.executive_reports import detect_report_intent, generate_executive_report, format_report_for_chat
 
 
 # ── Hybrid semantic-first routing gate ───────────────────────────────
@@ -88,7 +88,7 @@ def _template_filter_values(sql_upper: str) -> dict:
     for m in re.finditer(r'\{\{FLAG:([A-Z_][A-Z0-9_]*):([^}]+)\}\}', sql_upper):
         col, label = m.group(1), m.group(2).strip()
         try:
-            from schema_loader import resolve_flag
+            from nlu.schema_loader import resolve_flag
             val = resolve_flag(col, label)
             if val is not None:
                 result[col] = str(val)
@@ -104,7 +104,7 @@ def _question_txn(question: str):
     (both concepts present), so an ambiguous query never guesses.
     """
     try:
-        from schema_loader import get_flag_concept_map, _normalize_concept
+        from nlu.schema_loader import get_flag_concept_map, _normalize_concept
         qn = _normalize_concept(question or "")
         found = set()
         for label, mappings in get_flag_concept_map().items():
@@ -129,8 +129,8 @@ def _get_comment_words() -> set[str]:
     mtime-cached so comment edits are picked up without a restart. No keyword tables,
     no synonyms — comment vocabulary is the authority."""
     global _comment_words, _comment_words_mtime
-    import schema_loader
-    from schema_loader import _normalize_concept, _maybe_reload_comments
+    from nlu import schema_loader
+    from nlu.schema_loader import _normalize_concept, _maybe_reload_comments
     _maybe_reload_comments()
     if schema_loader._comments_mtime != _comment_words_mtime or not _comment_words:
         words: set[str] = set()
@@ -181,7 +181,7 @@ def _get_cw_ngrams() -> "dict[str, Counter]":
     Rebuilt lazily when the comment file changes (same hot-reload as _comment_words).
     """
     global _cw_ngrams_cache, _cw_ngrams_mtime
-    import schema_loader as _sl
+    from nlu import schema_loader as _sl
     if _cw_ngrams_cache is None or _sl._comments_mtime != _cw_ngrams_mtime:
         cw = _get_comment_words()
         _cw_ngrams_cache = {w: _char_ngrams(w) for w in cw if len(w) >= 3}
@@ -210,7 +210,7 @@ def _question_has_comment_word(question: str) -> bool:
     Fail-open: any exception → True (never block a real query on error).
     """
     try:
-        from schema_loader import _normalize_concept
+        from nlu.schema_loader import _normalize_concept
         cw = _get_comment_words()
         q_words = re.findall(r'[؀-ۿA-Za-z]+', question or '')
 
@@ -266,7 +266,7 @@ def _foreign_comment_nouns(question: str) -> list[str]:
     Fail-open to [] so an internal error never blocks a real query.
     """
     try:
-        from schema_loader import _normalize_concept
+        from nlu.schema_loader import _normalize_concept
         known = set(_get_comment_words())
         for w in _GATE_TIME_WORDS:
             n = _normalize_concept(w)
@@ -337,7 +337,7 @@ def _template_matches_meaning(template, entities: dict, question: str) -> tuple[
     #    (comment: 'INVTYPE 0=بيع 1=شراء' → a شراء question must not use an
     #    INVTYPE=0 template). Concepts come from the comments, so this auto-extends.
     try:
-        from schema_loader import get_flag_concept_map, _normalize_concept
+        from nlu.schema_loader import get_flag_concept_map, _normalize_concept
         q_norm = _normalize_concept(q)
         tmpl_filters = _template_filter_values(sql_u)
         if tmpl_filters:
@@ -358,7 +358,7 @@ def _template_matches_meaning(template, entities: dict, question: str) -> tuple[
     #    contains at least one table beyond ALWAYS_INCLUDE (COMPANIES/BRANCHES).
     #    If no real match, skip to avoid blocking on a fully ambiguous question.
     try:
-        from schema_loader import _select_tables_tiered, ALWAYS_INCLUDE as _AI
+        from nlu.schema_loader import _select_tables_tiered, ALWAYS_INCLUDE as _AI
         import re as _re4
         _primary, _ = _select_tables_tiered(q)
         real_primary = [t for t in _primary if t not in _AI]
@@ -584,7 +584,7 @@ async def process_question(
         return PipelineResult(answer="يرجى كتابة سؤال.", method="error")
 
     # ── Prompt injection detection ──
-    from sql_safety import detect_prompt_injection
+    from security.sql_safety import detect_prompt_injection
     injection = detect_prompt_injection(question)
     if injection:
         log.warning(f"[PIPELINE] Prompt injection detected from user={user_id}")
@@ -597,7 +597,7 @@ async def process_question(
     # ── RBAC: Domain access check (after intent detection, applied later) ──
     # Pre-load user permissions for row-limit and export enforcement
     try:
-        from rbac import get_user_permissions, get_max_rows
+        from security.rbac import get_user_permissions, get_max_rows
         _user_perms = get_user_permissions(user_id)
     except Exception:
         _user_perms = None
@@ -608,7 +608,7 @@ async def process_question(
     # Must run here — before the response_cache.get() — so a comment edit takes effect
     # on the very next request instead of waiting for the 5-min response-cache TTL.
     try:
-        from schema_loader import _maybe_reload_comments
+        from nlu.schema_loader import _maybe_reload_comments
         _maybe_reload_comments()
     except Exception:
         pass
@@ -650,7 +650,7 @@ async def process_question(
     except Exception:
         pass
     try:
-        import response_cache
+        from infra import response_cache
         cached = response_cache.get(
             question, company_code, fiscal_year,
             session_ctx=_session_ctx, user_role=_perm_fp,
@@ -957,7 +957,7 @@ async def process_question(
     # ── Store in response cache (for repeated questions) ──
     if result.method not in ("error", "greeting", "help", "action"):
         try:
-            import response_cache
+            from infra import response_cache
             response_cache.put(
                 question=question,
                 company_code=company_code,
@@ -1690,7 +1690,7 @@ def _comment_context_for_sql(sql: str) -> str:
     sees any business meaning from the comments.
     """
     try:
-        from schema_loader import _column_comments
+        from nlu.schema_loader import _column_comments
         tbls = re.findall(r'\b(?:FROM|JOIN)\s+([A-Z_][A-Z0-9_]*)', sql, re.IGNORECASE)
         seen: set[str] = set()
         lines: list[str] = []

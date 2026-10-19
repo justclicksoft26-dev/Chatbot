@@ -19,8 +19,8 @@ pytestmark = pytest.mark.usefixtures("justclick_profile")
 
 @pytest.mark.parametrize("case", GOLDEN, ids=[c["id"] for c in GOLDEN])
 def test_golden_case(case):
-    from intent_classifier import classify_intent
-    from query_templates import find_template, render_template
+    from nlu.intent_classifier import classify_intent
+    from nlu.query_templates import find_template, render_template
 
     expected_intent, expected_template = case.get("sub_intent"), case.get("template")
     extra_entities = case.get("entities", {})

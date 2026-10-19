@@ -3,8 +3,8 @@ import re
 
 import pytest
 
-import query_policy as qp
-from query_policy import QueryType, apply_policy, classify_query, decide_policy
+from security import query_policy as qp
+from security.query_policy import QueryType, apply_policy, classify_query, decide_policy
 
 
 def norm(sql):

@@ -4,7 +4,7 @@ import time
 
 import pytest
 
-import rbac
+from security import rbac
 
 
 @pytest.fixture(autouse=True)

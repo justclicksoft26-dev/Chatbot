@@ -25,11 +25,14 @@ _flag_concept_map: Optional[dict] = None   # derived from comments, lazily built
 _comments_mtime: float = 0.0               # mtime of last-parsed comments file
 _reload_lock = threading.Lock()            # serializes hot-reload swaps
 
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+
 def _get_comments_file() -> Path:
     """The active profile's comments file; SCHEMA_FILE overrides it (path relative to the project)."""
     override = os.getenv("SCHEMA_FILE", "").strip()
     if override:
-        return Path(__file__).parent / override
+        return PROJECT_ROOT / override
     import profiles
     return Path(profiles.comments_file())
 
@@ -142,17 +145,17 @@ def _maybe_reload_comments() -> None:
             _comments_mtime = m
         # downstream caches were built from the OLD comments — drop them
         try:
-            from cache import schema_cache
+            from infra.cache import schema_cache
             schema_cache.invalidate()
         except Exception:
             pass
         try:
-            import response_cache
+            from infra import response_cache
             response_cache.invalidate_all()
         except Exception:
             pass
         try:
-            import normalizer
+            from nlu import normalizer
             normalizer.invalidate_vocab()
         except Exception:
             pass
@@ -176,13 +179,13 @@ def force_reload_schema() -> dict:
     _maybe_reload_comments()
     counts: dict = {}
     try:
-        from cache import schema_cache, sql_cache
+        from infra.cache import schema_cache, sql_cache
         counts["schema_cache"] = schema_cache.invalidate()
         counts["sql_cache"] = sql_cache.invalidate()
     except Exception:
         pass
     try:
-        import response_cache
+        from infra import response_cache
         counts["response_cache"] = response_cache.invalidate_all()
     except Exception:
         pass

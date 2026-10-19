@@ -251,7 +251,7 @@ def generate_sql(schema_context: str, question: str, company_code: str,
     # SQL examples — loaded from justclick_comments.sql (@SQL_EXAMPLE_START blocks),
     # NOT hardcoded here.  Editing the file = change takes effect on next request.
     try:
-        from schema_loader import get_sql_examples
+        from nlu.schema_loader import get_sql_examples
         _examples = get_sql_examples()
     except Exception:
         _examples = ""
@@ -262,7 +262,7 @@ def generate_sql(schema_context: str, question: str, company_code: str,
     # constraints so the LLM cannot ignore them (e.g. INVID not unique across invoice
     # types → a lookup by INVID must be scoped by INVTYPE). Comment-sourced only.
     try:
-        from schema_loader import get_comment_constraints
+        from nlu.schema_loader import get_comment_constraints
         _constraints = get_comment_constraints(question)
     except Exception:
         _constraints = ""

@@ -9,8 +9,8 @@ import logging
 from typing import Optional
 from dataclasses import dataclass, field
 
-from db import execute_read_query as execute_query
-from llm_client import _call_llm
+from infra.db import execute_read_query as execute_query
+from llm.llm_client import _call_llm
 
 log = logging.getLogger("executive_reports")
 

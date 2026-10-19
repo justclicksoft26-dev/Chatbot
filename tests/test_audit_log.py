@@ -3,7 +3,7 @@ import sqlite3
 
 import pytest
 
-import audit_log
+from security import audit_log
 
 
 @pytest.fixture(autouse=True)

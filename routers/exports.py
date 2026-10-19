@@ -8,10 +8,10 @@ from fastapi.responses import Response
 from pydantic import BaseModel
 from typing import Optional
 
-from export_engine import (
+from reporting.export_engine import (
     ExportFormat, ExportRequest, generate_export, detect_export_intent,
 )
-from executive_reports import (
+from reporting.executive_reports import (
     generate_executive_report, detect_report_intent,
     format_report_for_chat, REPORT_TYPES, ExecutiveReport,
 )

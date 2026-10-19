@@ -33,8 +33,8 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-import schema_loader
-from schema_loader import _normalize_concept
+from nlu import schema_loader
+from nlu.schema_loader import _normalize_concept
 
 log = logging.getLogger("semantic.registry")
 
@@ -177,7 +177,7 @@ def snapshot() -> dict[str, dict[int, str]]:
 
 def _persist() -> None:
     try:
-        out = Path(__file__).parent / "data" / "semantic_registry.json"
+        out = Path(__file__).resolve().parent.parent / "data" / "semantic_registry.json"
         out.parent.mkdir(exist_ok=True)
         payload = {c: {str(k): v for k, v in legend.items()}
                    for c, legend in (_registry or {}).items()}

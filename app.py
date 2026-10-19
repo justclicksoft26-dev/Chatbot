@@ -17,8 +17,8 @@ from dotenv import load_dotenv
 from routers import chat, widget, upload, learning as learning_router, proactive as proactive_router
 from routers import actions as actions_router, exports as exports_router
 from routers import stream as stream_router
-from schema_loader import init_schema_context
-from cache import get_all_stats as get_cache_stats, invalidate_all as invalidate_cache, cleanup_all_expired
+from nlu.schema_loader import init_schema_context
+from infra.cache import get_all_stats as get_cache_stats, invalidate_all as invalidate_cache, cleanup_all_expired
 
 load_dotenv()
 
@@ -136,7 +136,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         path = request.url.path.rstrip("/")
 
         limit = 0
-        if path.startswith("/chat"):
+        if path.startswith(("/chat", "/api/chat")):      # /api/chat = APEX widget, also calls the LLM
             limit = _RATE_LIMIT_CHAT
         elif path.startswith("/learning"):
             limit = _RATE_LIMIT_LEARNING
@@ -230,7 +230,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 @app.on_event("startup")
 async def startup():
     await init_schema_context()
-    from dashboard_engine import validate_dashboard_sql, validate_dashboard_schema
+    from reporting.dashboard_engine import validate_dashboard_sql, validate_dashboard_schema
     validate_dashboard_sql()
     # Validate dashboard SQLs against live DB (catches column/table renames)
     try:
@@ -245,7 +245,7 @@ async def startup():
         log.warning(f"[STARTUP] Learning engine init skipped: {e}")
     # Restore persisted chat sessions from shared SQLite store
     try:
-        from memory import load_sessions_from_db
+        from infra.memory import load_sessions_from_db
         restored = load_sessions_from_db()
         log.info(f"[STARTUP] Sessions restored: {restored}")
     except Exception as e:
@@ -269,7 +269,7 @@ async def startup():
     # Fail at startup (not on first request) when AUTH_MODE=jwt but the
     # secret is not configured.  api_key mode skips this check silently.
     try:
-        from rbac import _AUTH_MODE as _rbac_auth_mode, _get_jwt_secret
+        from security.rbac import _AUTH_MODE as _rbac_auth_mode, _get_jwt_secret
         if _rbac_auth_mode == "jwt":
             _get_jwt_secret()                   # raises if secret absent
             log.info("[STARTUP] JWT secret validated (AUTH_MODE=jwt)")
@@ -320,7 +320,7 @@ async def health():
     # DB connectivity check only — no internal stats exposed publicly
     db_ok = False
     try:
-        from db import get_pool
+        from infra.db import get_pool
         pool = await get_pool()
         with pool.acquire() as conn:
             with conn.cursor() as cur:
@@ -338,13 +338,13 @@ async def health():
 @app.get("/health/detail")
 async def health_detail(request: Request):
     """Extended health — requires API key (same middleware as /chat)."""
-    from memory import get_session_stats
-    from llm_client import get_usage, _get_provider
-    from sql_safety import get_audit_stats
+    from infra.memory import get_session_stats
+    from llm.llm_client import get_usage, _get_provider
+    from security.sql_safety import get_audit_stats
 
     db_ok = False
     try:
-        from db import get_pool
+        from infra.db import get_pool
         pool = await get_pool()
         with pool.acquire() as conn:
             with conn.cursor() as cur:
@@ -370,7 +370,7 @@ async def health_detail(request: Request):
 @app.get("/observability/traces")
 async def get_traces(limit: int = 50):
     """Recent request traces for monitoring."""
-    from observability import get_recent_traces, get_performance_summary
+    from infra.observability import get_recent_traces, get_performance_summary
     return {
         "traces": get_recent_traces(limit),
         "summary": get_performance_summary(),
@@ -380,7 +380,7 @@ async def get_traces(limit: int = 50):
 @app.get("/observability/errors")
 async def get_errors(limit: int = 20):
     """Recent error traces."""
-    from observability import get_error_traces
+    from infra.observability import get_error_traces
     return {"errors": get_error_traces(limit)}
 
 

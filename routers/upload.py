@@ -7,7 +7,7 @@ import traceback
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from typing import Optional
 
-from image_analyzer import (
+from llm.image_analyzer import (
     validate_image,
     get_mime_type,
     analyze_image,

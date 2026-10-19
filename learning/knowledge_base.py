@@ -378,7 +378,7 @@ def _extract_tables_from_sql(sql: str) -> list[str]:
 def _detect_domain_from_tables(tables: list[str]) -> str:
     """Map a list of table names to the most relevant domain."""
     try:
-        from schema_loader import TABLE_GROUPS
+        from nlu.schema_loader import TABLE_GROUPS
     except ImportError:
         return "custom"
     scores: dict[str, int] = {}
@@ -538,7 +538,7 @@ def _terms_and_meanings_from_comments(
     blind to the rich per-column descriptions that already exist in the schema.
     """
     try:
-        from schema_loader import _table_comments, _column_comments
+        from nlu.schema_loader import _table_comments, _column_comments
     except Exception:
         return [], ""
 
@@ -1132,7 +1132,7 @@ def train_from_query(
     context building, and SQL generation.
     """
     try:
-        from sql_safety import validate_sql_for_storage
+        from security.sql_safety import validate_sql_for_storage
         safety = validate_sql_for_storage(sql)
         if not safety.is_safe:
             return {

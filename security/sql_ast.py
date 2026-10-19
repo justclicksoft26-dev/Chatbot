@@ -60,7 +60,7 @@ def _default_allowed_tables() -> set:
     """Comment-driven allowlist from sql_safety. Falls back to structural pseudo-tables
     only if schema/sql_safety is unavailable."""
     try:
-        from sql_safety import get_allowed_tables
+        from security.sql_safety import get_allowed_tables
         return get_allowed_tables()
     except Exception:
         return set(_STRUCTURAL_TABLES)

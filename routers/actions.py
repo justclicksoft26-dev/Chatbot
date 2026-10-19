@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from typing import Optional
 
 from erp_actions.models import ActionStatus
-import rbac
+from security import rbac
 from erp_actions.planner import plan_action, detect_action_intent, enrich_plan_with_current_values
 from erp_actions.executor import confirm_and_execute, reject_action
 from erp_actions.store import (

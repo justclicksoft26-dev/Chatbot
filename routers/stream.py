@@ -22,7 +22,7 @@ from pydantic import BaseModel, field_validator
 from typing import List, Optional
 
 from pipeline import process_question, PipelineResult
-from observability import new_trace, RequestTrace
+from infra.observability import new_trace, RequestTrace
 from routers.schemas import ScopeValue
 
 log = logging.getLogger("stream")

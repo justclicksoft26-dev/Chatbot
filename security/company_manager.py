@@ -86,7 +86,7 @@ def inject_company_filter(
     This function is the ONLY place where tenant filters are applied.
     It never blindly injects — it classifies the query first, then decides.
     """
-    from query_policy import apply_policy
+    from security.query_policy import apply_policy
     return apply_policy(sql, company_code, fiscal_year, question)
 
 
@@ -119,7 +119,7 @@ async def validate_company_access(user_id: str, company_code: str) -> bool:
 async def get_user_companies(user_id: str) -> list[dict]:
     """Return list of companies available to the user."""
     try:
-        from db import execute_read_query as execute_query
+        from infra.db import execute_read_query as execute_query
         data = await execute_query(
             "SELECT COMPANY_CODE, COMPANY_NAME_AR, COMPANY_NAME_EN "
             "FROM COMPANIES ORDER BY COMPANY_CODE "

@@ -12,8 +12,8 @@ import logging
 from dataclasses import dataclass, field
 from typing import Optional
 
-from db import execute_read_query as execute_query
-from sql_safety import validate_sql
+from infra.db import execute_read_query as execute_query
+from security.sql_safety import validate_sql
 
 log = logging.getLogger("dashboard")
 

@@ -59,7 +59,7 @@ def _build_vocab() -> tuple[frozenset, dict[str, str]]:
 
     # Source 1: column and table comments (justclick_comments.sql)
     try:
-        from schema_loader import _table_comments, _column_comments
+        from nlu.schema_loader import _table_comments, _column_comments
         for desc in (_table_comments or {}).values():
             words.update(_arabic_words(desc))
         for cols in (_column_comments or {}).values():
@@ -70,7 +70,7 @@ def _build_vocab() -> tuple[frozenset, dict[str, str]]:
 
     # Source 2: domain signal keywords
     try:
-        from intent_classifier import DOMAIN_SIGNALS
+        from nlu.intent_classifier import DOMAIN_SIGNALS
         _ar = re.compile(r'^[؀-ۿ\s]+$')
         for kw_list in DOMAIN_SIGNALS.values():
             words.update(w for w in kw_list if _ar.match(w))

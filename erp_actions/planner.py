@@ -339,7 +339,7 @@ async def enrich_plan_with_current_values(plan: ActionPlan, company_code: str) -
             log.debug("[PLANNER] enrich_plan: missing %s for %s — skipping", key, plan.action_type)
             return
     try:
-        from db import execute_read_query
+        from infra.db import execute_read_query
         rows = await execute_read_query(sql, params)
         if rows:
             plan.current_values = {k.upper(): v for k, v in rows[0].items()}

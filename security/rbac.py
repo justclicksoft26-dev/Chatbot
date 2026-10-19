@@ -419,7 +419,7 @@ def inject_row_level_security(
        was no WHERE *and* no ORDER/GROUP/FETCH marker.  The new code always
        appends WHERE <condition> in that case.
     """
-    from query_policy import (
+    from security.query_policy import (
         _inject_at_correct_position, _strip_subqueries, map_set_branches,
         BRANCH_TABLES,
     )

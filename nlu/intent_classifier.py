@@ -218,7 +218,7 @@ def classify_intent(question: str, history: list = None) -> Intent:
 
     # Pre-normalize Arabic: collapse repeats, fix informal ة/ه, Levenshtein-1 typos
     try:
-        from normalizer import normalize_question
+        from nlu.normalizer import normalize_question
         q_fixed, _corr = normalize_question(q)
         if _corr:
             log.info(f"[INTENT] Arabic corrected: {_corr}")
@@ -396,7 +396,7 @@ def _llm_classify(question: str, history: list = None) -> dict:
     Includes recent history for contextual understanding.
     """
     try:
-        from llm_client import _call_llm
+        from llm.llm_client import _call_llm
         messages = [
             {"role": "system", "content": _classify_prompt()},
         ]

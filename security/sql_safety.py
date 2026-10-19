@@ -7,7 +7,7 @@ import re
 import logging
 from dataclasses import dataclass
 
-from sql_ast import cte_names
+from security.sql_ast import cte_names
 
 log = logging.getLogger("sql_safety")
 
@@ -55,7 +55,7 @@ def get_allowed_tables() -> set:
     so adding a comment makes the table allowed with no code change."""
     global _allowed_cache, _allowed_mtime
     try:
-        import schema_loader
+        from nlu import schema_loader
         m = schema_loader._comments_mtime
         if _allowed_cache is None or m != _allowed_mtime:
             _allowed_cache = set(schema_loader._table_comments.keys()) | _STRUCTURAL_TABLES
@@ -196,7 +196,7 @@ def validate_sql(sql: str) -> SafetyResult:
 
     # ── AST-level structural validation ──
     try:
-        from sql_ast import validate_sql_ast
+        from security.sql_ast import validate_sql_ast
         ast_result = validate_sql_ast(cleaned)
         if not ast_result.is_valid:
             # AST found critical violations — block the query

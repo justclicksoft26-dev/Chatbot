@@ -1,7 +1,7 @@
 """sql_ast: structural validation that backs up the regex checks in sql_safety."""
 import pytest
 
-import sql_ast as ast
+from security import sql_ast as ast
 
 ALLOWED = {"CUST", "EMPLOYEES", "ITEMS"}
 

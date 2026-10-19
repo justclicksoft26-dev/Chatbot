@@ -27,9 +27,9 @@ Output is a canonical label; the registry (Layer 2) maps (column, canonical)→v
 from __future__ import annotations
 
 import re
-import schema_loader
-from schema_loader import _normalize_concept
-import semantic_registry as registry
+from nlu import schema_loader
+from nlu.schema_loader import _normalize_concept
+from nlu import semantic_registry as registry
 
 UNRESOLVED = "UNRESOLVED_FROM_COMMENTS"
 

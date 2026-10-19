@@ -4,7 +4,7 @@ import re
 import pytest
 
 import profiles
-from sql_safety import validate_sql
+from security.sql_safety import validate_sql
 
 PROFILES = ["justclick", "ecosafe"]
 REQUIRED = {
@@ -109,7 +109,7 @@ def test_suggestion_chips_are_well_formed(profile):
 
 # ── schema comments ────────────────────────────────────────────────────
 def test_comments_file_parses(profile):
-    import schema_loader
+    from nlu import schema_loader
     assert len(schema_loader._table_comments) >= 25
     assert set(schema_loader._column_comments) <= set(schema_loader._table_comments), \
         "column comments for a table that has no table comment"
@@ -123,7 +123,7 @@ def _entities_for(template):
 
 
 def test_every_template_renders_and_is_safe(profile):
-    import query_templates
+    from nlu import query_templates
     assert query_templates.TEMPLATES, "profile has no templates"
     for template in query_templates.TEMPLATES.values():
         sql = query_templates.render_template(template, _entities_for(template))
@@ -134,7 +134,7 @@ def test_every_template_renders_and_is_safe(profile):
 
 
 def test_templates_never_hardcode_tenant_filters(profile):
-    import query_templates
+    from nlu import query_templates
     for template in query_templates.TEMPLATES.values():
         assert "COMPANY_CODE" not in template.sql.upper(), template.name
         assert "FISCAL_YEAR" not in template.sql.upper(), template.name
@@ -142,16 +142,16 @@ def test_templates_never_hardcode_tenant_filters(profile):
 
 def test_templates_use_flag_placeholders_instead_of_literal_codes(profile):
     """Coded values (INVTYPE=0, CUST_TYPE=1, ...) must come from the comments."""
-    import query_templates
+    from nlu import query_templates
     literal = re.compile(r"\b(INVTYPE|CUST_TYPE)\s*=\s*\d", re.IGNORECASE)
     for template in query_templates.TEMPLATES.values():
         assert not literal.search(template.sql), f"{template.name} hard-codes a coded value"
 
 
 def test_templates_only_touch_commented_tables(profile):
-    import query_templates
-    from sql_safety import get_allowed_tables
-    from sql_ast import _extract_tables_ast
+    from nlu import query_templates
+    from security.sql_safety import get_allowed_tables
+    from security.sql_ast import _extract_tables_ast
     allowed = get_allowed_tables()
     for template in query_templates.TEMPLATES.values():
         sql = query_templates.render_template(template, _entities_for(template))
@@ -161,8 +161,8 @@ def test_templates_only_touch_commented_tables(profile):
 
 def test_tenant_policy_applies_to_every_justclick_template(justclick_profile):
     """query_policy must produce valid, still-safe SQL for each template."""
-    import query_templates
-    from query_policy import apply_policy
+    from nlu import query_templates
+    from security.query_policy import apply_policy
     for template in query_templates.TEMPLATES.values():
         sql = query_templates.render_template(template, _entities_for(template))
         scoped = apply_policy(sql, company_code="1", fiscal_year="2024")
@@ -181,18 +181,18 @@ def test_erp_profile_has_no_crm_vocabulary(justclick_profile):
 
 
 def test_crm_profile_keeps_its_four_templates(ecosafe_profile):
-    import query_templates
+    from nlu import query_templates
     assert sorted(query_templates.TEMPLATES) == [
         "crm_activity_count_month", "crm_activity_top_staff_month", "crm_contact_pipeline", "crm_customer_count"]
 
 
 def test_crm_profile_greets_as_crm(ecosafe_profile):
-    import copilot
+    from reporting import copilot
     assert "ECO SAFE" in copilot.COPILOT_GREETING
 
 
 def test_engine_reads_the_active_profile(monkeypatch):
-    from intent_classifier import classify_intent
+    from nlu.intent_classifier import classify_intent
     from tests.conftest import _load_profile
     try:
         _load_profile("ecosafe")

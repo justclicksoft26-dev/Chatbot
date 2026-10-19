@@ -17,9 +17,9 @@ It interprets nothing. It only asks the registry: "is this meaning yours?" and
 from __future__ import annotations
 
 import re
-import semantic_registry as registry
-import span_resolver
-from span_resolver import UNRESOLVED
+from nlu import semantic_registry as registry
+from nlu import span_resolver
+from nlu.span_resolver import UNRESOLVED
 
 _SLOT = re.compile(r'\{\{flag:([A-Z_][A-Z0-9_]*):([^}]+)\}\}')
 _SLOT_SPAN = re.compile(r'\{\{slot:([A-Z_][A-Z0-9_]*):([^}]+)\}\}')

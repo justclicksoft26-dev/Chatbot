@@ -5,7 +5,7 @@ and integrates with the action engine for approve/reject.
 """
 import logging
 from typing import Optional
-from db import execute_read_query as execute_query
+from infra.db import execute_read_query as execute_query
 
 log = logging.getLogger("erp_actions.workflows")
 

@@ -68,7 +68,7 @@ def get_conn():
 
     if backend == "oracle":
         # Reuse the shared connection pool from db.py (initialized at startup)
-        from db import _pool as _shared_pool
+        from infra.db import _pool as _shared_pool
         if _shared_pool is None:
             # Fallback: create a direct connection if pool not yet initialized
             import oracledb
