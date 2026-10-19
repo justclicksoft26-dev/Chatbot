@@ -68,6 +68,12 @@ def world(monkeypatch):
     company_manager._COMPANY_ACCESS.clear()
 
 
+@pytest.fixture
+def template_mode(monkeypatch):
+    """The legacy hybrid mode, where the profile's ready-made SQL templates may answer first."""
+    monkeypatch.setenv("ANSWER_MODE", "templates")
+
+
 async def ask(question, user="u1", company="1", year="2024", **kw):
     return await pipeline.process_question(question, user_id=user, company_code=company, fiscal_year=year, **kw)
 
@@ -95,6 +101,7 @@ async def test_prompt_injection_is_refused_without_touching_anything(world):
 
 
 # ── template path ──────────────────────────────────────────────────────
+@pytest.mark.usefixtures("template_mode")
 async def test_template_answer_is_scoped_to_company_and_year(world):
     r = await ask("كم عدد فواتير المبيعات؟", company="7", year="2025")
     assert r.method == "template" and r.template_used == "invoice_count_sales"
@@ -109,6 +116,7 @@ async def test_scalar_answer_is_formatted_locally(world):
     assert r.row_count == 1 and "7" in r.answer
 
 
+@pytest.mark.usefixtures("template_mode")
 async def test_customer_join_keeps_the_type_and_each_table_gets_its_company(world):
     world.db.rows = [{"CUSTID": 1, "CUST_NAME": "x", "TOTAL_SALES": 10}]
     await ask("أعلى 5 عملاء في المبيعات", company="2")
@@ -117,6 +125,7 @@ async def test_customer_join_keeps_the_type_and_each_table_gets_its_company(worl
     assert re.search(r"m\.COMPANY_CODE = 2\b", sql) and re.search(r"c\.COMPANY_CODE = 2\b", sql)
 
 
+@pytest.mark.usefixtures("template_mode")
 async def test_today_template_only_when_today_is_asked(world):
     await ask("إجمالي مبيعات اليوم")
     assert "SYSDATE" in world.db.last_sql
@@ -124,6 +133,7 @@ async def test_today_template_only_when_today_is_asked(world):
     assert "SYSDATE" not in world.db.last_sql
 
 
+@pytest.mark.usefixtures("template_mode")
 async def test_purchase_and_sales_never_swap(world):
     await ask("عدد فواتير المشتريات")
     assert "INVTYPE = 1" in world.db.last_sql
@@ -281,12 +291,14 @@ async def test_sql_result_cache_is_keyed_by_the_scoped_sql(world):
 
 
 # ── conversation context ───────────────────────────────────────────────
+@pytest.mark.usefixtures("template_mode")
 async def test_relative_time_follows_an_explicit_follow_up(world):
     await ask("إجمالي مبيعات اليوم")
     await ask("وكمان إجمالي المشتريات")
     assert "SYSDATE" in world.db.last_sql and "INVTYPE = 1" in world.db.last_sql
 
 
+@pytest.mark.usefixtures("template_mode")
 async def test_stock_balance_plural_is_understood(world):
     await ask("رصيد المخازن")
     assert "RASEED" in world.db.last_sql
@@ -306,3 +318,24 @@ async def test_executive_report_needs_access_to_its_domain(world, monkeypatch):
     assert r.method == "error" and "المجال" in r.answer and called == []
     assert er.report_allowed("wh", "inventory_status") and not er.report_allowed("wh", "financial_summary")
     assert er.report_allowed("nobody", "financial_summary")          # unknown users are not enforced (api_key mode)
+
+
+# ── comments-only mode (the default) ──────────────────────────────────
+async def test_default_mode_never_uses_a_ready_made_template(world):
+    r = await ask("كم عدد فواتير المبيعات؟")
+    assert r.method == "llm_controlled" and not r.template_used and len(world.llm.calls) == 1
+
+
+async def test_default_mode_still_scopes_what_the_llm_wrote(world):
+    await ask("كم عدد فواتير المبيعات؟", company="7", year="2031")
+    sql = world.db.last_sql.upper()
+    assert re.search(r"COMPANY_CODE\s*=\s*'?7", sql) and re.search(r"FISCAL_YEAR\s*=\s*'?2031", sql)
+
+
+def test_answer_mode_switch(monkeypatch):
+    monkeypatch.delenv("ANSWER_MODE", raising=False)
+    assert pipeline.answer_mode() == "comments"
+    monkeypatch.setenv("ANSWER_MODE", "Templates")
+    assert pipeline.answer_mode() == "templates"
+    monkeypatch.setenv("ANSWER_MODE", "nonsense")
+    assert pipeline.answer_mode() == "comments"
