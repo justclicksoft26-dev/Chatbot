@@ -1,0 +1,33 @@
+# Chatbot behind Caddy, which gets and renews the HTTPS certificate automatically.
+#   cp deploy/.env.vps.example .env   (fill it in)   then:   docker compose up -d --build
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      LEARNING_DB_PATH: /app/data/learning.db      # sessions, actions, audit survive restarts
+    volumes:
+      - chatbot-data:/app/data
+    expose:
+      - "8000"                                      # not published: only Caddy can reach it
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:?set SITE_ADDRESS in .env (your domain)}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  chatbot-data:
+  caddy-data:
+  caddy-config:

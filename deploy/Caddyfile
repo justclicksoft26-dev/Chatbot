@@ -1,0 +1,7 @@
+{$SITE_ADDRESS} {
+	encode zstd gzip
+	reverse_proxy app:8000 {
+		flush_interval -1          # keeps the streaming (SSE) answers flowing
+	}
+	# no access log on purpose: the first visit may carry ?key=...
+}
