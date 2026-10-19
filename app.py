@@ -206,7 +206,7 @@ app.add_middleware(
     allow_origins=_cors_final,
     allow_origin_regex=r"http://127\.0\.0\.1:\d+|http://localhost:\d+",
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["X-API-Key", "X-Learning-Key", "Content-Type", "Authorization"],
+    allow_headers=["X-API-Key", "X-Admin-Key", "X-Learning-Key", "Content-Type", "Authorization"],
 )
 
 STATIC_DIR = Path(__file__).parent / "static"
