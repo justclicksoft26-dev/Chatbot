@@ -122,14 +122,39 @@ async def get_dml_pool():
     return _dml_pool
 
 
-def _clean_sql(sql: str) -> str:
+_LITERAL_OR_BIND = None
+
+
+def _clean_sql(sql: str, params: dict = None) -> str:
+    """Tidy model output before execution.
+
+    Bind variables the caller did not supply become NULL (avoids DPY-4010); the ones it did supply
+    (row-level-security branches, scope values) are kept, and string literals are never touched, so
+    'HH24:MI:SS' stays intact.
+    """
     import re
+    global _LITERAL_OR_BIND
+    if _LITERAL_OR_BIND is None:
+        _LITERAL_OR_BIND = re.compile(r"'(?:[^']|'')*'|:(?!=)([a-zA-Z_]\w*)")
     sql = re.sub(r"```sql\s*", "", sql, flags=re.IGNORECASE)
     sql = re.sub(r"```\s*", "", sql)
     sql = sql.strip().rstrip(";").strip()
-    # Strip bind variables — replace :variable with NULL to prevent DPY-4010
-    sql = re.sub(r':(?!=)([a-zA-Z_]\w*)', 'NULL', sql)
-    return sql
+    supplied = {str(k).lower() for k in (params or {})}
+
+    def swap(match):
+        name = match.group(1)
+        if name is None or name.lower() in supplied:
+            return match.group(0)
+        return "NULL"
+
+    return _LITERAL_OR_BIND.sub(swap, sql)
+
+
+def _only_used_binds(sql: str, params: dict = None) -> dict:
+    """Oracle rejects bind values that have no placeholder (DPY-4008); keep the used ones."""
+    import re
+    used = {m.group(1).lower() for m in re.finditer(r":(?!=)([a-zA-Z_]\w*)", re.sub(r"'(?:[^']|'')*'", "''", sql))}
+    return {k: v for k, v in (params or {}).items() if str(k).lower() in used}
 
 
 def has_bind_variables(sql: str) -> bool:
@@ -142,7 +167,7 @@ def _run_query_sync_on_pool(pool, sql: str, params: dict = None) -> list[dict]:
     """Synchronous query execution on a given pool (runs in thread pool via asyncio)."""
     with pool.acquire() as conn:
         with conn.cursor() as cur:
-            cur.execute(sql, params or {})
+            cur.execute(sql, _only_used_binds(sql, params))
             cols = [d[0].lower() for d in cur.description]
             rows = cur.fetchmany(501)
             truncated = len(rows) > 500
@@ -178,7 +203,7 @@ def _is_transient_error(e: Exception) -> bool:
 
 async def execute_query(sql: str, params: dict = None) -> list[dict]:
     """ينفّذ SQL ويرجع list of dicts — الحد الأقصى 500 صف — timeout 30s — retry on transient"""
-    sql = _clean_sql(sql)
+    sql = _clean_sql(sql, params)
     await get_pool()
 
     last_err = None
@@ -220,7 +245,7 @@ async def execute_read_query(sql: str, params: dict = None) -> list[dict]:
     that even a complete failure of the sql_safety regex + AST layers cannot
     result in DML being executed on this path.
     """
-    sql = _clean_sql(sql)
+    sql = _clean_sql(sql, params)
 
     # ── Hard SELECT-only enforcement (last line of defence) ──────────
     # Run AFTER _clean_sql so markdown fences / semicolons are already stripped.
