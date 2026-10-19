@@ -186,20 +186,26 @@ def _extract_action_params(question: str, action_type: str, match) -> dict:
     """Extract action parameters from the question text."""
     params = {}
 
-    # Extract numeric IDs
-    ids = re.findall(r'(?:رقم|#|كود)\s*(\d+)', question)
+    # Extract price/amount first: its digits must never be read as a record id
+    amount_match = re.search(
+        r'(?:ب?قيم[ةه]|ب?مبلغ|سعر[هه]?|بسعر|amount|price|(?:إلى|الى|to))\s*(\d+(?:[.,]\d+)*)',
+        question
+    )
+    without_amount = question
+    if amount_match:
+        without_amount = question[:amount_match.start(1)] + " " + question[amount_match.end(1):]
+
+    # Extract numeric IDs: explicit marker, then "the customer/item 12", then a bare long number
+    ids = re.findall(r'(?:رقم|#|كود)\s*(\d+)', without_amount)
     if not ids:
-        ids = re.findall(r'\b(\d{3,})\b', question)
+        ids = re.findall(r'(?:العميل|المورد|الصنف|صنف|عميل|مورد|item|customer|supplier)\s+(\d+)\b', without_amount,
+                         flags=re.IGNORECASE)
+    if not ids:
+        ids = re.findall(r'\b(\d{3,})\b', without_amount)
 
     # Extract name (text after action verb, before numbers)
     name_match = re.search(
-        r'(?:اسم[هه]?|باسم|اسمه)\s+([^\d\n]{2,40})',
-        question
-    )
-
-    # Extract price/amount
-    amount_match = re.search(
-        r'(?:بقيمة|بمبلغ|سعر[هه]?|بسعر|amount|price)\s*(\d+(?:[.,]\d+)*)',
+        r'(?:اسم[هه]?|باسم|اسمه)\s+([^\d\n]{2,40}?)(?=\s+(?:ب?سعر[هه]?|ب?قيم[ةه]|ب?مبلغ|موبايل|هاتف|تليفون|phone|mob)\b|\d|\n|$)',
         question
     )
 
