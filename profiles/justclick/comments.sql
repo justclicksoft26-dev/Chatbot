@@ -304,6 +304,7 @@ COMMENT ON TABLE ITEMS IS
  ⚠ هذا جدول بيانات الصنف فقط — للكميات والحركات انظر TRANSACTION.
  ⚠ السعر هنا هو سعر البيع الافتراضي — للأسعار الخاصة انظر PRICE_LIST_DET.
 ⚠ للأصناف والمنتجات استخدم ITEMS فقط — لا يوجد جدول اسمه PRODUCTS في هذا النظام.
+ ⚠ رصيد الصنف الحالي: الدالة RASEED(ITEMID, STORE_CODE, من_تاريخ, الى_تاريخ, نوع_الحركة) ترجع صافي الكمية (الوارد ناقص الصادر). STORE_CODE=NULL يعني كل المخازن مجمّعة، وباقي المعاملات NULL تعني بلا قيد. مثال رصيد الصنف في كل المخازن: RASEED(ITEMID, NULL, NULL, NULL, NULL).
  Master table for all items and products. Prices and inventory movements are in other tables.';
 
 -- [dump]

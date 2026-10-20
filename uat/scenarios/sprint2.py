@@ -31,7 +31,8 @@ SPRINT = Sprint(
         Scenario("2.9", "عدد الوكلاء", tables=["CUST"], sql_has=[r"CUST_TYPE\s*=\s*2"],
                  reference_sql=f"SELECT COUNT(*) FROM CUST WHERE CUST_TYPE = 2 AND {S}",
                  why="الكود 2 = وكيل، يظهر في تعليق العمود فقط"),
-        Scenario("2.10", "كم صنف عندنا رصيده صفر؟", tables=["TRANSACTION_TOT"], sql_has=[r"QTY\s*=\s*0"],
-                 min_rows=1),
+        Scenario("2.10", "كم صنف عندنا رصيده صفر؟", tables=["ITEMS"], sql_has=[r"RASEED\s*\("],
+                 reference_sql="SELECT COUNT(*) FROM ITEMS WHERE NVL(RASEED(ITEMID, NULL, NULL, NULL, NULL), 0) = 0",
+                 why="الرصيد من الدالة RASEED (تعليق ITEMS)، وSTORE_CODE=NULL = كل المخازن"),
     ],
 )

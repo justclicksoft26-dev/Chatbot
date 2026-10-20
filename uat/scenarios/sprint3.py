@@ -37,7 +37,11 @@ SPRINT = Sprint(
                  sql_has=[r"FETCH FIRST 5|ROWNUM\s*<=\s*5"], min_rows=1),
         Scenario("3.6", "ما الصنف الأكثر مبيعاً بالكمية؟", tables=["DETAIL_INV", "ITEMS"], min_rows=1,
                  why="ربط تفاصيل الفاتورة بالأصناف وتجميع الكمية"),
-        Scenario("3.7", "كم رصيد المخزن الرئيسي من كل الأصناف؟", tables=["TRANSACTION_TOT", "STORE"], min_rows=1),
+        Scenario("3.7", "كم رصيد مخزن {store} من كل الأصناف؟", tables=["ITEMS", "STORE"], min_rows=1,
+                 sql_has=[r"RASEED\s*\("],
+                 setup={"store": ("SELECT TRIM(STORE_NAME) FROM STORE WHERE STORE_CODE = (SELECT MIN(STORE_CODE) FROM STORE "
+                                  "WHERE STORE_NAME NOT LIKE '%-%' AND TRIM(STORE_NAME) <> 'تيست')")},
+                 why="اسم مخزن حقيقي من بياناتك، والرصيد من RASEED(ITEMID, STORE_CODE, ...)"),
         Scenario("3.8", "ما إجمالي المدين والدائن في القيود؟", tables=["VOUCHERS_DET"], min_rows=1,
                  why="AMOUNT موجب = مدين وسالب = دائن (من التعليق)"),
     ],
