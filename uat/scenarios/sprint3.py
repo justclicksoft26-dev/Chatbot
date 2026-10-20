@@ -14,7 +14,8 @@ SPRINT = Sprint(
                                 f"WHERE INVTYPE = 0 AND TRUNC(INVDATE, 'MM') = TRUNC(SYSDATE, 'MM') AND {S}")),
         Scenario("3.2", "إجمالي مشتريات السنة", tables=["MAIN_INV"], sql_has=[r"INVTYPE\s*=\s*1"],
                  reference_sql=("SELECT NVL(SUM(DECODE(RETURN_FLAG, 0, FINALTOTAL, -FINALTOTAL)), 0) FROM MAIN_INV "
-                                f"WHERE INVTYPE = 1 AND {S}")),
+                                f"WHERE INVTYPE = 1 AND TRUNC(INVDATE, 'YYYY') = TRUNC(SYSDATE, 'YYYY') AND {S}"),
+                 why="«السنة» = السنة الحالية من تاريخ الفاتورة"),
         Scenario("3.3", "كم عدد فواتير المبيعات اليوم؟", tables=["MAIN_INV"], sql_has=[r"SYSDATE"],
                  reference_sql=("SELECT COUNT(*) FROM MAIN_INV WHERE INVTYPE = 0 AND RETURN_FLAG = 0 "
                                 f"AND TRUNC(INVDATE) = TRUNC(SYSDATE) AND {S}")),
@@ -36,7 +37,11 @@ SPRINT = Sprint(
                  sql_has=[r"FETCH FIRST 5|ROWNUM\s*<=\s*5"], min_rows=1),
         Scenario("3.6", "ما الصنف الأكثر مبيعاً بالكمية؟", tables=["DETAIL_INV", "ITEMS"], min_rows=1,
                  why="ربط تفاصيل الفاتورة بالأصناف وتجميع الكمية"),
-        Scenario("3.7", "كم رصيد المخزن الرئيسي من كل الأصناف؟", tables=["TRANSACTION_TOT", "STORE"], min_rows=1),
+        Scenario("3.7", "كم رصيد مخزن {store} من كل الأصناف؟", tables=["ITEMS", "STORE"], min_rows=1,
+                 sql_has=[r"RASEED\s*\("],
+                 setup={"store": ("SELECT TRIM(STORE_NAME) FROM STORE WHERE STORE_CODE = (SELECT MIN(STORE_CODE) FROM STORE "
+                                  "WHERE STORE_NAME NOT LIKE '%-%' AND TRIM(STORE_NAME) <> 'تيست')")},
+                 why="اسم مخزن حقيقي من بياناتك، والرصيد من RASEED(ITEMID, STORE_CODE, ...)"),
         Scenario("3.8", "ما إجمالي المدين والدائن في القيود؟", tables=["VOUCHERS_DET"], min_rows=1,
                  why="AMOUNT موجب = مدين وسالب = دائن (من التعليق)"),
     ],
