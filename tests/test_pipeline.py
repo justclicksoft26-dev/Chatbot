@@ -393,3 +393,24 @@ async def test_an_overloaded_model_gets_its_own_message(world, monkeypatch, erro
     monkeypatch.setattr(pipeline, "generate_sql_async", boom)
     r = await ask("كم عدد فواتير المبيعات؟")
     assert r.method == "error" and "مشغول" in r.answer
+
+
+# ── a quota error says what ran out and for how long ─────────────────
+@pytest.mark.parametrize("error,expected", [
+    ("429 RESOURCE_EXHAUSTED. Quota exceeded for metric: generate_content_free_tier_requests, limit: 20, model: m\n"
+     "Please retry in 18h34m58.65s.", ["الحصة اليومية", "19 ساعة", "الفوترة"]),
+    ("429 RESOURCE_EXHAUSTED. quota per day. Please retry in 40m10s", ["الحصة اليومية", "40 دقيقة"]),
+    ("429 rate_limit. Please retry in 12s", ["تجاوز حد", "لحظات"]),
+    ("Error code: 429 - rate_limit_exceeded", ["تجاوز حد"]),
+])
+def test_quota_messages(error, expected):
+    message = pipeline._quota_message(error)
+    assert all(part in message for part in expected), message
+
+
+async def test_a_quota_error_reaches_the_user_as_such(world, monkeypatch):
+    async def boom(**kwargs):
+        raise RuntimeError("429 RESOURCE_EXHAUSTED. GenerateRequestsPerDayPerProject. Please retry in 5h1m0s")
+    monkeypatch.setattr(pipeline, "generate_sql_async", boom)
+    r = await ask("كم عدد فواتير المبيعات؟")
+    assert r.method == "error" and "الحصة اليومية" in r.answer and "5 ساعة" in r.answer

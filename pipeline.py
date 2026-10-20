@@ -1522,13 +1522,7 @@ async def _execute_llm_controlled(
         log.error("[PIPELINE] question failed (%s): %s", type(e).__name__, err_str[:600])
         # Rate limit handling
         if "429" in err_str or "rate_limit" in err_str.lower() or "resourceexhausted" in err_str.lower():
-            wait = re.search(r'try again in (\d+m[\d.]+s)', err_str)
-            wait_msg = f" (انتظر {wait.group(1)})" if wait else ""
-            return PipelineResult(
-                answer=f"تم تجاوز حد الاستخدام المجاني — حاول بعد قليل{wait_msg}",
-                method="error",
-                error=err_str,
-            )
+            return PipelineResult(answer=_quota_message(err_str), method="error", error=err_str)
         if _LLM_BUSY.search(err_str):
             return PipelineResult(
                 answer="نموذج اللغة مشغول حالياً — جرّب السؤال مرة أخرى بعد لحظات.",
@@ -1546,6 +1540,26 @@ async def _execute_llm_controlled(
             method="error",
             error=err_str,
         )
+
+
+def _quota_message(err_str: str) -> str:
+    """Say what ran out and for how long: a daily free quota is not something to retry in a minute."""
+    wait = re.search(r"retry in (?:(\d+)h)?(?:(\d+)m)?(?:(\d+(?:\.\d+)?)s)?", err_str, re.IGNORECASE)
+    hours = int(wait.group(1)) if wait and wait.group(1) else 0
+    minutes = int(wait.group(2)) if wait and wait.group(2) else 0
+    seconds = float(wait.group(3)) if wait and wait.group(3) else 0.0
+    total_minutes = hours * 60 + minutes + (1 if seconds >= 30 else 0)
+    when = ""
+    if total_minutes >= 120:
+        when = f" — تتجدد بعد حوالي {round(total_minutes / 60)} ساعة"
+    elif total_minutes >= 2:
+        when = f" — تتجدد بعد حوالي {total_minutes} دقيقة"
+    elif wait and (seconds or minutes):
+        when = " — حاول بعد لحظات"
+    if re.search(r"PerDay|per day|free_tier", err_str, re.IGNORECASE):
+        return ("انتهت الحصة اليومية المجانية لنموذج اللغة" + when +
+                ". فعّل الفوترة في حساب Google AI Studio أو غيّر GEMINI_MODEL في إعدادات الخادم.")
+    return "تم تجاوز حد استخدام نموذج اللغة" + (when or " — حاول بعد قليل") + "."
 
 
 _LLM_BUSY = re.compile(r"\b50[34]\b|UNAVAILABLE|overloaded|high demand|DEADLINE_EXCEEDED|timed out|timeout", re.IGNORECASE)
