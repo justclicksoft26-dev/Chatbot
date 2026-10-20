@@ -99,3 +99,16 @@ def test_deploy_files_keep_the_app_private_and_secrets_out():
         key, _, value = line.partition("=")
         if key in {"API_KEY", "ADMIN_API_KEY", "DB_PASS", "DB_READ_PASS", "GEMINI_API_KEY", "GROQ_API_KEY", "DB_USER"}:
             assert value.split("#")[0].strip() == "", f"{key} must be empty in the template"
+
+
+def test_each_google_sdk_that_the_code_imports_is_in_the_requirements():
+    """Regression: llm_client used `from google import genai` (package google-genai) while only the older
+    google-generativeai was installed, so every Gemini call failed on a clean install."""
+    import re
+    reqs = (ROOT / "requirements.txt").read_text().lower()
+    code = "\n".join(p.read_text(encoding="utf-8", errors="ignore") for p in ROOT.rglob("*.py")
+                     if not {"tests", ".venv", "archive"} & set(p.relative_to(ROOT).parts))
+    if re.search(r"from google import genai|import google\.genai|from google\.genai", code):
+        assert re.search(r"^google-genai\b", reqs, re.M), "google-genai is imported but not in requirements.txt"
+    if re.search(r"import google\.generativeai|from google\.generativeai", code):
+        assert re.search(r"^google-generativeai\b", reqs, re.M)
