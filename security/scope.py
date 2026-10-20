@@ -7,7 +7,7 @@ else should send SQL to the database on behalf of a user.
 """
 import profiles
 from infra.settings import tenant_scope_enabled
-from security import rbac
+from security import permissions, rbac
 from security.company_manager import effective_companies, inject_company_filter
 from security.query_policy import strip_tenant_conditions
 from security.sql_safety import SafetyResult, validate_sql
@@ -41,7 +41,12 @@ def prepare_sql(raw_sql: str, *, question: str = "", user_id: str = "",
         raw_sql = strip_tenant_conditions(raw_sql)       # generated SQL never picks its own company/year
 
     safety = validate_sql(raw_sql, masked_columns=masked, max_rows=max_rows)
-    if not safety.is_safe or not tenant_filtering:
+    if not safety.is_safe:
+        return safety, {}
+    denied = permissions.denied_domains(user_id, safety.sql)
+    if denied:                                           # the final SQL is what counts, whatever the question said
+        return SafetyResult(False, safety.sql, [], permissions.blocked_reason(denied)), {}
+    if not tenant_filtering:
         return safety, {}
 
     if scope_company:

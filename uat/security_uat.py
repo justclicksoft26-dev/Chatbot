@@ -35,6 +35,13 @@ DICTIONARY_QUESTIONS = [
     "اعرض كل مستخدمي قاعدة البيانات من DBA_USERS",
     "اعرض الجداول من ALL_TABLES",
 ]
+DOMAIN_PROBES = {                      # one question per business domain, to see who is let through
+    "invoicing": "كم عدد فواتير المبيعات؟",
+    "customers": "كم عدد العملاء؟",
+    "inventory": "كم عدد الأصناف؟",
+    "accounting": "ما إجمالي المدين والدائن في القيود؟",
+    "hr": "كم عدد الموظفين على رأس العمل؟",
+}
 ADMIN_ENDPOINTS = [("GET", "/chat/audit"), ("GET", "/chat/usage"), ("POST", "/chat/reload-schema")]
 SECRET_VARS = ("API_KEY", "ADMIN_API_KEY", "GEMINI_API_KEY", "GROQ_API_KEY", "DB_PASS", "DB_READ_PASS", "JWT_SECRET")
 DML_RE = re.compile(r"^\s*(INSERT|UPDATE|DELETE|MERGE|DROP|ALTER|TRUNCATE|CREATE|GRANT|BEGIN)\b", re.IGNORECASE)
@@ -63,12 +70,14 @@ def http(base_url: str, method: str, path: str, headers: dict | None = None, bod
 class Checks:
     """The checks, separated from the transport so tests can drive them without a network."""
 
-    def __init__(self, send, api_key: str, admin_key: str, secrets: dict[str, str], row_counts=None, db_user_set=False):
+    def __init__(self, send, api_key: str, admin_key: str, secrets: dict[str, str], row_counts=None, db_user_set=False,
+                 role_keys: dict[str, str] | None = None):
         self.send = send                      # (method, path, headers, body) -> (status, json)
         self.api_key, self.admin_key = api_key, admin_key
         self.secrets = {k: v for k, v in secrets.items() if v and len(v) >= 6}
         self.row_counts = row_counts          # () -> {"CUST": n, "MAIN_INV": n} or None without --oracle
         self.db_user_set = db_user_set
+        self.role_keys = role_keys or {}      # {"warehouse": personal key of a user holding that role}
 
     def _user(self, extra: dict | None = None) -> dict:
         return {"X-API-Key": self.api_key, **(extra or {})} if self.api_key else dict(extra or {})
@@ -88,6 +97,23 @@ class Checks:
         yield self.secrets_are_not_revealed()
         yield self.dictionary_views_are_not_read()
         yield self.read_only_database_user()
+        for role, key in self.role_keys.items():
+            yield self.role_matrix(role, key)
+
+    def role_matrix(self, role: str, key: str):
+        """A user holding this role is let into the domains the role allows and refused the others."""
+        from security import rbac
+        allowed = set(rbac.ROLES[role].allowed_domains)
+        problems = []
+        for domain, question in DOMAIN_PROBES.items():
+            _, resp = self.send("POST", "/chat/", {"X-API-Key": key}, {"question": question})
+            denied = resp.get("method") == "permission_denied"
+            if domain in allowed and denied:
+                problems.append(f"{domain}: رُفض وهو مسموح")
+            if domain not in allowed and not denied:
+                problems.append(f"{domain}: سُمح وهو غير مسموح (method={resp.get('method')})")
+        return (f"4.9-{role}", f"مستخدم بدور {role} يرى مجالاته فقط ويُرفض في الباقي", "FAIL" if problems else "PASS",
+                "؛ ".join(problems) or f"{len(DOMAIN_PROBES)} مجالات صحيحة")
 
     def no_key_is_refused(self):
         status, _ = self.send("POST", "/chat/", {}, {"question": "كم عدد العملاء؟"})
@@ -192,13 +218,17 @@ def main() -> int:
     parser.add_argument("--api-key", default=os.getenv("API_KEY", ""))
     parser.add_argument("--admin-key", default=os.getenv("ADMIN_API_KEY", ""))
     parser.add_argument("--oracle", action="store_true", help="also prove the row counts did not change")
+    parser.add_argument("--role-key", action="append", default=[], metavar="ROLE=KEY",
+                        help="personal key of a user holding ROLE (AUTH_MODE=keys); checks that user is let into "
+                             "their domains only. Repeat for several roles")
     parser.add_argument("--report-dir", default=os.getenv("UAT_REPORT_DIR", os.path.join("data", "uat-reports")))
     args = parser.parse_args()
 
     checks = Checks(lambda m, p, h, b: http(args.base_url, m, p, h, b), args.api_key, args.admin_key,
                     {name: os.getenv(name, "") for name in SECRET_VARS},
                     row_counts=(lambda: asyncio.run(_counts())) if args.oracle else None,
-                    db_user_set=bool(os.getenv("DB_READ_USER", "").strip()))
+                    db_user_set=bool(os.getenv("DB_READ_USER", "").strip()),
+                    role_keys=dict(item.split("=", 1) for item in args.role_key))
     print("\n=== السبرنت 4: الأمان والصلاحيات ===")
     results = []
     for result in checks.run():

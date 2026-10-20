@@ -318,6 +318,25 @@ async def cache_invalidate(req: CacheInvalidateRequest):
 
 # ── Company endpoints ────────────────────────────────────────────
 
+@router.get("/me")
+async def who_am_i(request: Request):
+    """Who the caller is and what they may read — the page shows it, and a user can check their own access."""
+    from security import permissions
+    user_id = caller_id(request, request.query_params.get("user_id", ""))
+    perms = _rbac.get_user_permissions(user_id)
+    domains = permissions.user_domains(user_id)
+    return {
+        "user_id": user_id,
+        "role": perms.role,
+        "restricted": domains is not None,
+        "domains": sorted(d for d in (domains if domains is not None else permissions.DOMAIN_LABELS_AR) if d != "shared"),
+        "domain_labels": permissions.DOMAIN_LABELS_AR,
+        "branches": perms.allowed_branches,
+        "can_view_sql": perms.can_view_sql,
+        "can_export": perms.can_export,
+    }
+
+
 @router.get("/config")
 async def web_config():
     """Company and fiscal year the web page asks about unless the user picks others."""

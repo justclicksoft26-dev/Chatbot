@@ -8,7 +8,8 @@
 -- ==================== MAIN_INV ====================
 -- [dump]
 COMMENT ON TABLE MAIN_INV IS
-  'راس فاتورة البيع والشراء. كل صف = فاتورة واحدة.
+  '@domain invoicing
+  راس فاتورة البيع والشراء. كل صف = فاتورة واحدة.
      INVTYPE     : 0=بيع , 1=شراء.
      RETURN_FLAG : 0=فاتورة عادية , 1=مرتجع.
      ⚠ JOIN مع DETAIL_INV      على INV_KEY وليس INVID.
@@ -224,7 +225,8 @@ COMMENT ON COLUMN MAIN_INV.BRANCH_ID IS
 -- ==================== CUST ====================
 -- [dump]
 COMMENT ON TABLE CUST IS
-  'جدول العملاء والموردين والوكلاء.
+  '@domain customers
+  جدول العملاء والموردين والوكلاء.
      المفتاح الاساسي المركب : (CUSTID + CUST_TYPE).
      ⚠ اي JOIN مع CUST لازم يشمل CUST_TYPE في الشرط وإلا يرجع بيانات خاطئة.
      CUST_TYPE : 0=عميل , 1=مورد , 2=وكيل.
@@ -300,7 +302,8 @@ COMMENT ON COLUMN CUST.BRANCH_ID IS
 -- ==================== ITEMS ====================
 -- [dump]
 COMMENT ON TABLE ITEMS IS
-  'الأصناف والمنتجات — بيانات الصنف الأساسية.
+  '@domain inventory
+  الأصناف والمنتجات — بيانات الصنف الأساسية.
  ⚠ هذا جدول بيانات الصنف فقط — للكميات والحركات انظر TRANSACTION.
  ⚠ السعر هنا هو سعر البيع الافتراضي — للأسعار الخاصة انظر PRICE_LIST_DET.
 ⚠ للأصناف والمنتجات استخدم ITEMS فقط — لا يوجد جدول اسمه PRODUCTS في هذا النظام.
@@ -342,7 +345,8 @@ COMMENT ON COLUMN ITEMS.STORE_CODE IS
 -- ==================== CHARTS ====================
 -- [dump]
 COMMENT ON TABLE CHARTS IS
-  '⚠ حركات/تفاصيل/كشف الحساب موجودة في VOUCHERS_DET عبر CHART_CODE — هذا الجدول للتعريف فقط.
+  '@domain accounting
+  ⚠ حركات/تفاصيل/كشف الحساب موجودة في VOUCHERS_DET عبر CHART_CODE — هذا الجدول للتعريف فقط.
 
   شجرة الحسابات المحاسبية (Chart of Accounts). شجرة هرمية — PARENT_CHART_CODE يشير للحساب الأب.
 
@@ -375,7 +379,8 @@ COMMENT ON COLUMN CHARTS.CHART_TYPE IS
 -- ==================== EMPLOYEES ====================
 -- [apex]
 COMMENT ON TABLE EMPLOYEES IS
-  'الموظفون — بيانات الموارد البشرية (وليس جهات اتصال العملاء). المفتاح EMP_ID. الموظف على رأس العمل : END_SERVICE_FLG = ''N'' ، ومن ترك الخدمة : END_SERVICE_FLG = ''Y''.';
+  '@domain hr
+  الموظفون — بيانات الموارد البشرية (وليس جهات اتصال العملاء). المفتاح EMP_ID. الموظف على رأس العمل : END_SERVICE_FLG = ''N'' ، ومن ترك الخدمة : END_SERVICE_FLG = ''Y''.';
 
 -- [dump]
 COMMENT ON COLUMN EMPLOYEES.EMP_ID IS
@@ -416,7 +421,8 @@ COMMENT ON COLUMN EMPLOYEES.END_SERVICE_DATE IS
 -- ==================== CASH_TRANS_HEAD ====================
 -- [apex]
 COMMENT ON TABLE CASH_TRANS_HEAD IS
-  'رأس حركات الخزينة (قبض وصرف نقدي) — كل صف = حركة واحدة. TRANS_TYPE : 0=وارد , -1=صادر.';
+  '@domain accounting
+  رأس حركات الخزينة (قبض وصرف نقدي) — كل صف = حركة واحدة. TRANS_TYPE : 0=وارد , -1=صادر.';
 
 -- [dump]
 COMMENT ON COLUMN CASH_TRANS_HEAD.STORE_CODE IS
@@ -441,7 +447,8 @@ COMMENT ON COLUMN CASH_TRANS_HEAD.SESSION_ID IS
 -- ==================== CASH_TRANS_DETAIL ====================
 -- [apex]
 COMMENT ON TABLE CASH_TRANS_DETAIL IS
-  'تفاصيل حركات الخزينة — أسطر كل حركة من CASH_TRANS_HEAD.';
+  '@domain accounting
+  تفاصيل حركات الخزينة — أسطر كل حركة من CASH_TRANS_HEAD.';
 
 -- [dump]
 COMMENT ON COLUMN CASH_TRANS_DETAIL.FRACTION_PAYED IS
@@ -468,7 +475,8 @@ COMMENT ON COLUMN CASH_TRANS_DETAIL.ID IS
 -- ==================== DETAIL_INV ====================
 -- [apex]
 COMMENT ON TABLE DETAIL_INV IS
-  'بنود الفواتير — كل صف = صنف واحد داخل فاتورة من MAIN_INV. ⚠ JOIN مع MAIN_INV على INV_KEY وليس INVID. قيمة البند = PRICE × QTY + ADD_VAL − SUB_VAL، وتُعكس الإشارة في فواتير المرتجع (MAIN_INV.RETURN_FLAG=1).';
+  '@domain invoicing
+  بنود الفواتير — كل صف = صنف واحد داخل فاتورة من MAIN_INV. ⚠ JOIN مع MAIN_INV على INV_KEY وليس INVID. قيمة البند = PRICE × QTY + ADD_VAL − SUB_VAL، وتُعكس الإشارة في فواتير المرتجع (MAIN_INV.RETURN_FLAG=1).';
 
 -- [dump]
 COMMENT ON COLUMN DETAIL_INV.QTY_UNITS IS
@@ -526,7 +534,8 @@ COMMENT ON COLUMN DETAIL_INV.SUB_VAL IS
 -- ==================== SAL_PURCH_TRANS_TYPE ====================
 -- [dump]
 COMMENT ON TABLE SAL_PURCH_TRANS_TYPE IS
-  'تكويد انواع حركات السداد للعملاء والموردين والمندوبين.
+  '@domain invoicing
+  تكويد انواع حركات السداد للعملاء والموردين والمندوبين.
      المفتاح الاساسي المركب : (TRANS_CODE + SAL_PURCH).
      SAL_PURCH : 0=عملاء , 1=موردون , 2=مندوبون.
      ⚠ الربط مع PAYED يكون على (TRANS_CODE + SAL_PURCH) معا وليس TRANS_CODE وحده.
@@ -596,7 +605,8 @@ COMMENT ON COLUMN SAL_PURCH_TRANS_TYPE.DOC_ID IS
 -- ==================== PAYED ====================
 -- [dump]
 COMMENT ON TABLE PAYED IS
-  'سجل كل المدفوعات والتحصيلات للعملاء والموردين.
+  '@domain invoicing
+  سجل كل المدفوعات والتحصيلات للعملاء والموردين.
 كل صف = عملية دفع أو تحصيل واحدة.
 DEB_CRD: 0=دائن(تحصيل من عميل), 1=مدين(دفع لمورد).
 ⚠ JOIN مع CUST على (CUST_ID, SAL_PURCH) بدلاً من (CUSTID, CUST_TYPE).
@@ -664,7 +674,8 @@ COMMENT ON COLUMN PAYED.COMPANY_CODE IS
 -- ==================== ITEM_CARD ====================
 -- [apex]
 COMMENT ON TABLE ITEM_CARD IS
-  'كارت الصنف — حركات الصنف في المخازن مع الرصيد بعد كل حركة. الوارد ADD_QTY والصادر SUB_QTY والرصيد QTY. ⚠ لرصيد الصنف الحالي استخدم الدالة RASEED(ITEMID, STORE_CODE, NULL, NULL, NULL) وليس جمع هذا الجدول.';
+  '@domain inventory
+  كارت الصنف — حركات الصنف في المخازن مع الرصيد بعد كل حركة. الوارد ADD_QTY والصادر SUB_QTY والرصيد QTY. ⚠ لرصيد الصنف الحالي استخدم الدالة RASEED(ITEMID, STORE_CODE, NULL, NULL, NULL) وليس جمع هذا الجدول.';
 
 -- [dump]
 COMMENT ON COLUMN ITEM_CARD.ITEMID IS
@@ -693,7 +704,8 @@ COMMENT ON COLUMN ITEM_CARD.QTY IS
 -- ==================== VOUCHERS ====================
 -- [dump]
 COMMENT ON TABLE VOUCHERS IS
-  'رأس القيد المحاسبي (اليومية) — للقيود المحاسبية فقط. ⚠ تفاصيل الحسابات المدينة والدائنة في VOUCHERS_DET. ⚠ JOIN مع VOUCHERS_DET على (VOUCHER_MONTH, VOUCHER_CODE) معاً — لازم العمودين. ⚠ هذا الجدول للقيود والمحاسبة فقط — استخدم CASH_TRANS_HEAD للمعاملات النقدية. Journal entry header.';
+  '@domain accounting
+  رأس القيد المحاسبي (اليومية) — للقيود المحاسبية فقط. ⚠ تفاصيل الحسابات المدينة والدائنة في VOUCHERS_DET. ⚠ JOIN مع VOUCHERS_DET على (VOUCHER_MONTH, VOUCHER_CODE) معاً — لازم العمودين. ⚠ هذا الجدول للقيود والمحاسبة فقط — استخدم CASH_TRANS_HEAD للمعاملات النقدية. Journal entry header.';
 
 -- [dump]
 COMMENT ON COLUMN VOUCHERS.VOUCHER_CODE IS
@@ -710,7 +722,8 @@ COMMENT ON COLUMN VOUCHERS.VOUCHER_MONTH IS
 -- ==================== VOUCHERS_DET ====================
 -- [dump]
 COMMENT ON TABLE VOUCHERS_DET IS
-  'تفاصيل اطراف القيد المحاسبي.
+  '@domain accounting
+  تفاصيل اطراف القيد المحاسبي.
      المفتاح الاساسي : (VOUCHER_CODE + SERIAL).
      ⚠ مجموع AMOUNT في القيد الواحد = 0 (قيد متزن).
        SUM(AMOUNT) WHERE VOUCHER_CODE=x ≠ 0 → قيد غير متزن = خطا';
@@ -744,7 +757,8 @@ COMMENT ON COLUMN VOUCHERS_DET.COST_CODE IS
 -- ==================== INST ====================
 -- [dump]
 COMMENT ON TABLE INST IS
-  'اعدادات النظام - سجل واحد لكل شركة يضبط سلوك جميع الموديولات.
+  '@domain shared
+  اعدادات النظام - سجل واحد لكل شركة يضبط سلوك جميع الموديولات.
      يُقرا في BEFORE_HEADER لتحديد سلوك الشاشات تلقائيا.';
 
 -- [dump]
@@ -843,7 +857,8 @@ COMMENT ON COLUMN INST.INV_CAT_CHK IS
 -- ==================== STORE ====================
 -- [dump]
 COMMENT ON TABLE STORE IS
-  'جدول المخازن - يعرف المخازن المتاحة في النظام.';
+  '@domain inventory
+  جدول المخازن - يعرف المخازن المتاحة في النظام.';
 
 -- [dump]
 COMMENT ON COLUMN STORE.STORE_CODE IS
@@ -860,7 +875,8 @@ COMMENT ON COLUMN STORE.STORE_NAME_EN IS
 -- ==================== UNITS ====================
 -- [dump]
 COMMENT ON TABLE UNITS IS
-  'جدول وحدات القياس المستخدمة للاصناف المخزنية.';
+  '@domain inventory
+  جدول وحدات القياس المستخدمة للاصناف المخزنية.';
 
 -- [dump]
 COMMENT ON COLUMN UNITS.UNIT_ID IS
@@ -873,7 +889,8 @@ COMMENT ON COLUMN UNITS.UNIT_NAME IS
 -- ==================== COST_CENTERS ====================
 -- [dump]
 COMMENT ON TABLE COST_CENTERS IS
-  'جدول مراكز التكلفة - يحدد الجهة المحاسبية التي تتحمل التكلفة.';
+  '@domain accounting
+  جدول مراكز التكلفة - يحدد الجهة المحاسبية التي تتحمل التكلفة.';
 
 -- [dump]
 COMMENT ON COLUMN COST_CENTERS.COST_CODE IS
@@ -890,7 +907,8 @@ COMMENT ON COLUMN COST_CENTERS.COST_NAME_E IS
 -- ==================== DEALER_DATA ====================
 -- [dump]
 COMMENT ON TABLE DEALER_DATA IS
-  'بيانات المناطق والمشرفين والمندوبين.
+  '@domain customers
+  بيانات المناطق والمشرفين والمندوبين.
      المفتاح الاساسي المركب : (DEALER_ID + DEALER_TYPE).
      ⚠ اي JOIN مع DEALER_DATA لازم يشمل DEALER_TYPE في الشرط.
      DEALER_TYPE :
@@ -945,7 +963,8 @@ COMMENT ON COLUMN DEALER_DATA.COMPANY_CODE IS
 -- ==================== PRICE_LIST ====================
 -- [dump]
 COMMENT ON TABLE PRICE_LIST IS
-  'قوائم الاسعار المتاحة للعملاء.
+  '@domain invoicing
+  قوائم الاسعار المتاحة للعملاء.
      المفتاح الاساسي : PRICE_LIST_ID.
      يُربط بالعميل في CUST.PRICE_LIST_ID (الافتراضية) و CUST.PRICE_LIST_ID_PERIOD (المؤقتة).
      ⚠ القائمة الفعالة تتحدد بتاريخ الفاتورة بين OPEN_FROM_DATE و OPEN_TO_DATE.';
@@ -969,7 +988,8 @@ COMMENT ON COLUMN PRICE_LIST.OPEN_TO_DATE IS
 -- ==================== INV_CATEGORIES ====================
 -- [dump]
 COMMENT ON TABLE INV_CATEGORIES IS
-  'تصنيفات الفواتير - يحدد نوع الفاتورة المحاسبي.
+  '@domain invoicing
+  تصنيفات الفواتير - يحدد نوع الفاتورة المحاسبي.
      المفتاح الاساسي : INV_CAT.
      ⚠ INV_CAT_TYPE يميز استخدام التصنيف :
        1       = مخصص للسداد → يظهر في LOV شاشة السداد (Page 46)
@@ -1009,7 +1029,8 @@ COMMENT ON COLUMN INV_CATEGORIES.COMPANY_CODE IS
 -- ==================== STORE_TRANS_TYPE ====================
 -- [dump]
 COMMENT ON TABLE STORE_TRANS_TYPE IS
-  'تعريف انواع اذون الحركات المخزنية وخصائص كل نوع.';
+  '@domain inventory
+  تعريف انواع اذون الحركات المخزنية وخصائص كل نوع.';
 
 -- [dump]
 COMMENT ON COLUMN STORE_TRANS_TYPE.TRANS_CODE IS
@@ -1030,7 +1051,8 @@ COMMENT ON COLUMN STORE_TRANS_TYPE.DUP_ITEM IS
 -- ==================== TRANSMASTER ====================
 -- [dump]
 COMMENT ON TABLE TRANSMASTER IS
-  'راس الحركة المخزنية - يخزن بيانات راس كل اذن صرف او اضافة او تحويل.';
+  '@domain inventory
+  راس الحركة المخزنية - يخزن بيانات راس كل اذن صرف او اضافة او تحويل.';
 
 -- [dump]
 COMMENT ON COLUMN TRANSMASTER.STORE_CODE IS
@@ -1093,7 +1115,8 @@ COMMENT ON COLUMN TRANSMASTER.MASTER_ID IS
 -- ==================== TRANSACTION ====================
 -- [dump]
 COMMENT ON TABLE TRANSACTION IS
-  'تفاصيل الحركة المخزنية - يخزن بنود كل اذن.
+  '@domain inventory
+  تفاصيل الحركة المخزنية - يخزن بنود كل اذن.
      يُستخدم عند INST.PRICE_POLICY=1 (سعر تفصيلي).';
 
 -- [dump]
@@ -1176,7 +1199,8 @@ COMMENT ON COLUMN TRANSACTION.ITEMID2 IS
 -- ==================== TRANSACTION_TOT ====================
 -- [dump]
 COMMENT ON TABLE TRANSACTION_TOT IS
-  'اجمالي بنود الحركة المخزنية.
+  '@domain inventory
+  اجمالي بنود الحركة المخزنية.
      يُستخدم عند INST.PRICE_POLICY=0 (سعر موحد) بدون تفصيل تشغيلات.
      ⚠ الفرق عن TRANSACTION :
        TRANSACTION_TOT = سعر موحد بدون تشغيلات (PRICE_POLICY=0)
@@ -1217,7 +1241,8 @@ COMMENT ON COLUMN TRANSACTION_TOT.TRANS_TYPE_CODE IS
 -- ==================== EXPIRY_DATA ====================
 -- [dump]
 COMMENT ON TABLE EXPIRY_DATA IS
-  'تواريخ الصلاحية للاصناف - يخزن تفاصيل الدفعات لكل سطر حركة.
+  '@domain inventory
+  تواريخ الصلاحية للاصناف - يخزن تفاصيل الدفعات لكل سطر حركة.
      ⚠ JOIN مع TRANSACTION على TRANSACTION_SER + ITEM_ID.';
 
 -- [dump]
@@ -1255,7 +1280,8 @@ COMMENT ON COLUMN EXPIRY_DATA.ITEM_ID IS
 -- ==================== MAIN_INV_PAYED ====================
 -- [dump]
 COMMENT ON TABLE MAIN_INV_PAYED IS
-  'توزيع مبلغ السداد على الفواتير. كل صف = جزء من سداد على فاتورة واحدة.
+  '@domain invoicing
+  توزيع مبلغ السداد على الفواتير. كل صف = جزء من سداد على فاتورة واحدة.
      المفتاح الاساسي : (PAYED_ID + SDAD_TRANS_TYPE + INVID + CHILD_CUSTID).
      ⚠ JOIN مع PAYED على (PAYED_ID + SDAD_TRANS_TYPE) معا.
      ⚠ JOIN مع MAIN_INV على INV_KEY (وليس INVID) مع LEFT JOIN و NVL.
@@ -1306,7 +1332,8 @@ COMMENT ON COLUMN MAIN_INV_PAYED.COMPANY_CODE IS
 -- ==================== BRANCHES ====================
 -- [apex]
 COMMENT ON TABLE BRANCHES IS
-  'الفروع — تعريف فروع الشركة. المفتاح BRANCH_ID.';
+  '@domain shared
+  الفروع — تعريف فروع الشركة. المفتاح BRANCH_ID.';
 
 -- [apex]
 COMMENT ON COLUMN BRANCHES.BRANCH_ID IS
@@ -1323,7 +1350,8 @@ COMMENT ON COLUMN BRANCHES.BRANCH_NAME_EN IS
 -- ==================== COMPANIES ====================
 -- [apex]
 COMMENT ON TABLE COMPANIES IS
-  'الشركات — تعريف الشركات (Tenant). المفتاح COMPANY_CODE.';
+  '@domain shared
+  الشركات — تعريف الشركات (Tenant). المفتاح COMPANY_CODE.';
 
 -- [apex]
 COMMENT ON COLUMN COMPANIES.COMPANY_CODE IS
@@ -1332,7 +1360,8 @@ COMMENT ON COLUMN COMPANIES.COMPANY_CODE IS
 -- ==================== ITEMGROUP ====================
 -- [apex]
 COMMENT ON TABLE ITEMGROUP IS
-  'مجموعات الأصناف — تصنيف الأصناف. المفتاح GROUPID.';
+  '@domain inventory
+  مجموعات الأصناف — تصنيف الأصناف. المفتاح GROUPID.';
 
 -- [apex]
 COMMENT ON COLUMN ITEMGROUP.GROUPID IS

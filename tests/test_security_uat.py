@@ -93,3 +93,32 @@ def test_the_key_and_admin_checks_hold_on_the_real_app(monkeypatch):
 
     results = {r[0]: r for r in su.Checks(send, "k", "a", {}).run() if r[0] in ("4.1", "4.2", "4.3", "4.4")}
     assert {k: v[2] for k, v in results.items()} == {"4.1": "PASS", "4.2": "PASS", "4.3": "PASS", "4.4": "PASS"}, results
+
+
+# ── the role matrix ────────────────────────────────────────────────────
+def matrix_sender(allowed_domains):
+    """A server that answers permission_denied for every probe outside the given domains."""
+    by_question = {q: d for d, q in su.DOMAIN_PROBES.items()}
+
+    def send(method, path, headers, body):
+        domain = by_question[body["question"]]
+        return 200, {"method": "llm_controlled" if domain in allowed_domains else "permission_denied", "answer": "x"}
+    return send
+
+
+def test_the_role_matrix_passes_when_a_role_sees_exactly_its_domains():
+    checks = su.Checks(matrix_sender({"inventory"}), "k", "a", {}, role_keys={"warehouse": "jc_x"})
+    result = checks.role_matrix("warehouse", "jc_x")
+    assert result[2] == "PASS", result
+
+
+def test_the_role_matrix_fails_when_a_forbidden_domain_is_answered():
+    checks = su.Checks(matrix_sender({"inventory", "hr"}), "k", "a", {})
+    result = checks.role_matrix("warehouse", "jc_x")
+    assert result[2] == "FAIL" and "hr" in result[3]
+
+
+def test_the_role_matrix_fails_when_an_allowed_domain_is_refused():
+    checks = su.Checks(matrix_sender(set()), "k", "a", {})
+    result = checks.role_matrix("warehouse", "jc_x")
+    assert result[2] == "FAIL" and "inventory" in result[3]
