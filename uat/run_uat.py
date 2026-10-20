@@ -12,6 +12,7 @@ import asyncio
 import datetime
 import json
 import os
+import re
 import sys
 import tempfile
 import time
@@ -20,6 +21,7 @@ import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from infra.settings import tenant_scope_enabled  # noqa: E402
 from uat.scenario import check_response, rows_match  # noqa: E402
 from uat.scenarios import SPRINTS  # noqa: E402
 
@@ -51,13 +53,16 @@ async def oracle_rows(sql: str) -> list[dict]:
 
 def fill(text: str, values: dict) -> str:
     out = text
+    if values.get("scope") == "off":          # the server runs unscoped, so the reference must too
+        out = re.sub(r"(?:\w+\.)?(?:COMPANY_CODE|FISCAL_YEAR)\s*=\s*\{(?:company|year)\}", "1 = 1", out)
     for key, value in values.items():
         out = out.replace("{" + key + "}", str(value))
     return out
 
 
 def run_scenario(sc, args) -> dict:
-    values = {"company": args.company, "year": args.year}
+    values = {"company": args.company, "year": args.year,
+              "scope": "on" if tenant_scope_enabled() else "off"}
     notes = []
     if sc.setup:
         if not args.oracle:
@@ -97,9 +102,11 @@ def write_report(sprint, results, args) -> str:
     passed = [r for r in done if r["status"] == "PASS"]
     rate = len(passed) / len(done) if done else 0.0
     accepted = rate >= sprint.threshold and bool(done)
+    scope_note = (f"الشركة {args.company} — السنة {args.year}" if tenant_scope_enabled()
+                  else "بدون فلتر شركة/سنة (TENANT_SCOPE=off)")
     lines = [f"# تقرير قبول — السبرنت {sprint.number}: {sprint.title}", "",
              f"- الهدف: {sprint.goal}",
-             f"- التاريخ: {datetime.datetime.now():%Y-%m-%d %H:%M} — الشركة {args.company} — السنة {args.year}"
+             f"- التاريخ: {datetime.datetime.now():%Y-%m-%d %H:%M} — {scope_note}"
              f" — المقارنة مع Oracle: {'نعم' if args.oracle else 'لا (فحص الـ SQL فقط)'}",
              f"- النتيجة: **{len(passed)}/{len(done)}** ({rate:.0%}) — الحد المطلوب {sprint.threshold:.0%} — "
              f"**{'مقبول ✅' if accepted else 'غير مقبول ❌'}**", "",

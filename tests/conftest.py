@@ -21,6 +21,12 @@ os.environ["AUTH_MODE"] = "api_key"
 
 
 @pytest.fixture(autouse=True)
+def company_scope_on(monkeypatch):
+    """The suite exercises company/year scoping; production defaults to TENANT_SCOPE=off."""
+    monkeypatch.setenv("TENANT_SCOPE", "on")
+
+
+@pytest.fixture(autouse=True)
 def isolated_sqlite(tmp_path, monkeypatch):
     """Point every SQLite user (actions, sessions, rate limit, audit) at a temp file."""
     monkeypatch.setenv("LEARNING_DB_PATH", str(tmp_path / "learning.db"))

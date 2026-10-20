@@ -1888,7 +1888,7 @@
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 105.64-11.36L1 10"/></svg>
           <span>محادثة جديدة</span>
         </button>
-        <button class="header-chip" onclick="editScope()" title="تغيير الشركة والسنة المالية">
+        <button class="header-chip" id="scope-chip" onclick="editScope()" title="تغيير الشركة والسنة المالية" style="display:none">
           <span id="scope-label">الشركة · السنة</span>
         </button>
         <div class="header-chip">
@@ -2005,6 +2005,8 @@
         const cfg = await r.json();
         if (!SCOPE.company_code) SCOPE.company_code = String(cfg.company_code || '');
         if (!SCOPE.fiscal_year) SCOPE.fiscal_year = String(cfg.fiscal_year || '');
+        const chip = document.getElementById('scope-chip');
+        if (chip) chip.style.display = cfg.tenant_scope ? '' : 'none';     // no company filter → nothing to pick
       }
     } catch (e) { /* the fallbacks of scopeBody() apply */ }
     showScope();

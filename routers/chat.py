@@ -321,8 +321,9 @@ async def cache_invalidate(req: CacheInvalidateRequest):
 @router.get("/config")
 async def web_config():
     """Company and fiscal year the web page asks about unless the user picks others."""
-    from infra.settings import default_company, default_fiscal_year
-    return {"company_code": default_company(), "fiscal_year": default_fiscal_year()}
+    from infra.settings import default_company, default_fiscal_year, tenant_scope_enabled
+    return {"company_code": default_company(), "fiscal_year": default_fiscal_year(),
+            "tenant_scope": tenant_scope_enabled()}
 
 
 @router.get("/companies")
