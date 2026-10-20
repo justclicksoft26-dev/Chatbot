@@ -167,6 +167,77 @@ END;
 })();
 ```
 
+### 4-ب) لو عندك الويدجت العائم (نافذة JavaScript تنادي `/api/chat` مباشرة، بدون iframe)
+
+هذا هو الأنسب لتطبيقك. اجعل الـ Ajax Callback **Application Process** (Shared Components ← Application Processes ←
+Point: Ajax Callback، الاسم `GET_CHATBOT_TOKEN`، Authorization: *Must not be public user*) فيعمل من أي صفحة، ثم عدّل الويدجت في ثلاثة أماكن:
+
+**(1) الاسم:** `var USER_NAME = '&G_REAL_NAME!JS.';`  ← بدل `&G_REAL_NAME.` (لأن `!JS` يهرّب علامات الاقتباس).
+
+**(2) أضِف هذه الدوال** (قبل `sendMsg`):
+
+```javascript
+var CHAT_API = 'https://chat.justclick-soft.com/api/chat';
+var chatToken = '', chatTokenExp = 0;
+
+function jwtExp(t) {
+    try { return JSON.parse(atob(t.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))).exp || 0; }
+    catch (e) { return 0; }
+}
+
+// شهادة صالحة من APEX (تُجدَّد قبل انتهائها بدقيقة). لا دور = لا شهادة = لا شات
+function getChatToken(force) {
+    var now = Math.floor(Date.now() / 1000);
+    if (!force && chatToken && chatTokenExp - now > 60) { return Promise.resolve(chatToken); }
+    return new Promise(function (resolve, reject) {
+        apex.server.process('GET_CHATBOT_TOKEN', {}, {
+            dataType: 'json',
+            success: function (d) {
+                if (d && d.token) { chatToken = d.token; chatTokenExp = jwtExp(d.token); resolve(chatToken); }
+                else { reject(new Error('no-role')); }
+            },
+            error: function () { reject(new Error('session')); }
+        });
+    });
+}
+
+async function askChat(question, retried) {
+    var token = await getChatToken(!!retried);
+    var res = await fetch(CHAT_API, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+        body: JSON.stringify({ question: question })          // الاسم لا يُرسل: الشهادة هي التي تحدد من يسأل
+    });
+    if (res.status === 401 && !retried) { return askChat(question, true); }   // انتهت الشهادة: جدّدها مرة واحدة
+    if (!res.ok) { throw new Error('HTTP ' + res.status); }
+    return res.json();
+}
+```
+
+**(3) داخل `sendMsg`** استبدل كتلة `requestBody` و`fetch` و`if (!response.ok)` و`var data = ...` بهذا:
+
+```javascript
+    try {
+        var data = await askChat(txt);
+        var reply = data.reply || "لا توجد إجابة متاحة حالياً.";
+        setTimeout(function () { addMessage(reply, 'bot'); }, 300);
+    } catch (err) {
+        console.error('Error:', err);
+        if (err.message === 'no-role')      { addMessage("ليس لك صلاحية على المساعد. تواصل مع مدير النظام.", 'bot'); }
+        else if (err.message === 'session') { addMessage("انتهت جلستك. سجّل الدخول من جديد.", 'bot'); }
+        else                                { addMessage("حدث خطأ في الاتصال بالمساعد. جرب تاني.", 'bot'); }
+    } finally {
+        inp.disabled = false;
+    }
+```
+
+رد السيرفر لسؤال خارج الصلاحيات يصل في `data.reply` كأي إجابة («ليس لديك صلاحية على هذا المجال … المتاح لك: …»)، فيظهر للمستخدم كما هو.
+
+**شروط لازم تتحقق عشان المتصفح يسمح بالنداء:**
+- `.env` على السيرفر: `CORS_ORIGINS=https://عنوان-APEX-عندك` (أو اتركه فارغاً فيسمح للكل، والحماية الفعلية هي الشهادة).
+- في APEX: Shared Components ← Security Attributes ← **Browser Security ← Content Security Policy**: أضِف `https://chat.justclick-soft.com` في `connect-src` (لو سياسة الـ CSP مفعّلة عندك)، وإلا يحجب المتصفح النداء.
+- `FRAME_ANCESTORS` غير مطلوب لهذا الشكل (هو للـ iframe فقط).
+
 ## 5) تجربة سريعة
 
 1. في SQL Developer: `SELECT chatbot_sso.token_for('AHMED') FROM dual;` ← يطلع نص طويل بثلاث أجزاء بينها نقطتان.
