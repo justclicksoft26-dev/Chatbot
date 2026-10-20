@@ -106,7 +106,11 @@ class Checks:
         allowed = set(rbac.ROLES[role].allowed_domains)
         problems = []
         for domain, question in DOMAIN_PROBES.items():
-            _, resp = self.send("POST", "/chat/", {"X-API-Key": key}, {"question": question})
+            status, resp = self.send("POST", "/chat/", {"X-API-Key": key}, {"question": question})
+            if status != 200:                       # a refused request says nothing about the role's domains
+                return (f"4.9-{role}", f"مستخدم بدور {role} يرى مجالاته فقط ويُرفض في الباقي", "FAIL",
+                        f"الطلب فشل (HTTP {status}): المفتاح غير صالح أو الخادم لا يعمل بوضع AUTH_MODE=keys. "
+                        "استخدم المفتاح الحقيقي الذي طبعه أمر الإضافة، لا نصاً بديلاً")
             denied = resp.get("method") == "permission_denied"
             if domain in allowed and denied:
                 problems.append(f"{domain}: رُفض وهو مسموح")

@@ -122,3 +122,9 @@ def test_the_role_matrix_fails_when_an_allowed_domain_is_refused():
     checks = su.Checks(matrix_sender(set()), "k", "a", {})
     result = checks.role_matrix("warehouse", "jc_x")
     assert result[2] == "FAIL" and "inventory" in result[3]
+
+
+def test_a_refused_request_is_reported_as_a_bad_key_not_as_a_leak():
+    checks = su.Checks(lambda m, p, h, b: (401, {"detail": "invalid"}), "k", "a", {})
+    result = checks.role_matrix("warehouse", "not-a-real-key")
+    assert result[2] == "FAIL" and "HTTP 401" in result[3] and "المفتاح" in result[3]
