@@ -107,7 +107,8 @@ async def analyze_image(
         import google.generativeai as genai
         genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
-        model_name = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+        from llm.llm_client import gemini_model
+        model_name = gemini_model()
         model = genai.GenerativeModel(model_name)
 
         # Build content parts

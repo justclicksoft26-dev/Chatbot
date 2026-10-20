@@ -98,8 +98,10 @@ def test_reference_queries_are_safe_selects_over_known_tables():
 # ── end to end against a fake chatbot ─────────────────────────────────
 class Fake(BaseHTTPRequestHandler):
     answers = {}
+    last_headers = {}
 
     def do_POST(self):
+        Fake.last_headers = dict(self.headers)
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         reply = self.answers.get(body["question"], {"answer": "لا أعرف", "method": "error", "sql_generated": "", "row_count": 0})
         payload = json.dumps(reply, ensure_ascii=False).encode()
@@ -161,3 +163,10 @@ def test_an_unreachable_chatbot_is_a_failure_not_a_crash(tmp_path):
 def test_scenarios_needing_real_data_are_skipped_without_oracle(server, tmp_path):
     needs_data = next(sc for sc in SPRINTS[3].scenarios if sc.setup)
     assert run_uat.run_scenario(needs_data, args_for(server, tmp_path))["status"] == "SKIP"
+
+
+def test_the_runner_sends_the_keys_so_the_server_includes_the_sql(server, tmp_path):
+    Fake.answers.clear()
+    args = args_for(server, tmp_path, api_key="api-k", admin_key="adm-k")
+    run_uat.run_scenario(SPRINTS[1].scenarios[0], args)
+    assert Fake.last_headers.get("X-Api-Key") == "api-k" and Fake.last_headers.get("X-Admin-Key") == "adm-k"
