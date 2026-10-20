@@ -71,6 +71,20 @@ def _permission_fingerprint(perms) -> str:
     return f"{perms.role}:{domains}:{branches}"
 
 
+_DUAL_MESSAGE_RE = re.compile(r"^\s*SELECT\s+(?P<sel>.+?)\s+FROM\s+DUAL\b", re.IGNORECASE | re.DOTALL)
+
+
+def _is_message_only_sql(sql: str) -> bool:
+    """SELECT 'some text' FROM DUAL — the model refusing through SQL instead of saying so.
+    It reads no table, so it is not an answer from the data; a call such as
+    RASEED(...) FROM DUAL has no string literal in its select list and is left alone."""
+    m = _DUAL_MESSAGE_RE.match(sql or "")
+    if not m:
+        return False
+    sel = m.group("sel")
+    return "'" in sel and "(" not in re.sub(r"'(?:[^']|'')*'", "", sel)
+
+
 def _prep(sql: str, question: str, user_id: str, company_code: str, fiscal_year: str):
     return prepare_sql(sql, question=question, user_id=user_id,
                        company_code=company_code, fiscal_year=fiscal_year)
@@ -1392,6 +1406,14 @@ async def _execute_llm_controlled(
             extra_context=extra_context,
         )
 
+        if _is_message_only_sql(sql_raw):
+            log.info("[PIPELINE] model answered with a literal message (no table read) — out of scope")
+            texts = profiles.part("prompts")
+            return PipelineResult(
+                answer=texts.OUT_OF_SCOPE_AR if any('؀' <= c <= 'ۿ' for c in question) else texts.OUT_OF_SCOPE_EN,
+                sql="",
+                method="out_of_scope",
+            )
 
         # Safety validation + company / year / branch scoping
         safety, params = _prep(sql_raw, question, user_id, company_code, fiscal_year)

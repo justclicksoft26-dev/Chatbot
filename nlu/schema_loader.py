@@ -342,7 +342,9 @@ def _comment_tokens(text: str) -> set[str]:
     out via _COMMENT_STOPWORDS so they don't create false table matches.
     """
     out: set[str] = set()
-    for w in re.findall(r'[؀-ۿA-Za-z]+', text or ''):
+    # Letters only: the U+0600–06FF block also holds ؟ ، ؛ — left in, "المخازن؟" never
+    # matches the comment word "المخازن" and every question ending in ؟ loses its table.
+    for w in re.findall(r'[ء-يٱ-ۓA-Za-z]+', text or ''):
         n = _normalize_concept(w)
         if len(n) >= 3 and n not in _COMMENT_STOPWORDS:
             out.add(n)
@@ -544,6 +546,15 @@ _MAX_REFERENCED = 6     # FK-referenced (name-only) — raised from 3→6 so tha
                          # name-only entries are ~20 chars each → +3 entries ≈ +60 chars, negligible.
 
 
+_LEGEND_RE = re.compile(
+    r'[A-Z][A-Z_0-9]*\s*:\s*-?\d+\s*=\s*[^,،.⚠\n]+?(?:\s*[,،]\s*-?\d+\s*=\s*[^,،.⚠\n]+?)*(?=\s*(?:\.|⚠|\n|$))')
+
+
+def _code_legends(text: str) -> list[str]:
+    """"COL : 0=a , 1=b" fragments written in a comment, whitespace-normalized."""
+    return [re.sub(r'\s+', ' ', m.group(0)).strip() for m in _LEGEND_RE.finditer(text or '')]
+
+
 def _compact_desc(text: str, cap: int) -> str:
     """Normalize whitespace and cap length on a word boundary. Keeps meaning intact."""
     d = re.sub(r'\s+', ' ', text or '').strip()
@@ -595,6 +606,8 @@ def _normalize_concept(text: str) -> str:
     """
     t = re.sub(r'[أإآٱ]', 'ا', (text or '').strip().lower())
     t = t.replace('ة', 'ه').replace('ى', 'ي')
+    if t.startswith('وال') and len(t) > 5:      # "والموردين" in a comment ≡ "الموردين" in a question
+        t = t[1:]
     if t.startswith('ال') and len(t) > 4:
         t = t[2:]
     return _BROKEN_PLURALS.get(t, t)
@@ -713,6 +726,11 @@ def _name_only_block(tbl: str) -> str:
     column names to build JOINs, without spending tokens on full descriptions.
     """
     tbl_desc = _compact_desc(_table_comments[tbl], 120)
+    # The cap must never cut a code legend ("CUST_TYPE : 0=عميل , 1=مورد"): without it
+    # the model guesses the codes. Legends are taken from the comment itself.
+    for leg in _code_legends(_table_comments[tbl]):
+        if leg not in tbl_desc:
+            tbl_desc += f" {leg}"
     cols = ", ".join(_column_comments.get(tbl, {}).keys())
     return f"\n{tbl}: {tbl_desc}\n  [{cols}]"
 

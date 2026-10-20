@@ -41,8 +41,9 @@ SPRINT = Sprint(
                                 "ORDER BY SUM(DECODE(m.RETURN_FLAG, 0, m.FINALTOTAL, -m.FINALTOTAL)) DESC "
                                 "FETCH FIRST 5 ROWS ONLY"),
                  ordered=True, why="ربط الفواتير بالعملاء بالمفتاحين CUST_ID و CUST_TYPE"),
-        Scenario("1.11", "اعرض لي أرصدة الأصناف في المخازن", tables=["TRANSACTION_TOT"], min_rows=1,
-                 why="الأرصدة من جدول الإجماليات لا من جدول الحركات"),
+        Scenario("1.11", "اعرض لي أرصدة الأصناف في المخازن", tables=["ITEMS", "STORE"], min_rows=1,
+                 sql_has=[r"RASEED\s*\("],
+                 why="تعليق ITEM_CARD: لرصيد الصنف الحالي استخدم الدالة RASEED وليس جمع جدول الحركات"),
         Scenario("1.12", "ما هو الطقس اليوم؟", expect_no_sql=True,
                  why="سؤال خارج النطاق يجب أن يُرفض بأدب بدون SQL"),
     ],
