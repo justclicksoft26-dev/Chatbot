@@ -93,3 +93,26 @@ def test_the_key_and_admin_checks_hold_on_the_real_app(monkeypatch):
 
     results = {r[0]: r for r in su.Checks(send, "k", "a", {}).run() if r[0] in ("4.1", "4.2", "4.3", "4.4")}
     assert {k: v[2] for k, v in results.items()} == {"4.1": "PASS", "4.2": "PASS", "4.3": "PASS", "4.4": "PASS"}, results
+
+
+# ── the column check separates real gaps from the hundreds of tables nobody can query ──
+def test_column_diff_reports_only_tables_the_assistant_can_query():
+    from scripts.check_sql_against_db import diff_columns
+    actual = {("CUST", "BRANCH_ID"), ("CUST", "COMPANY_CODE"), ("LOG", "BRANCH_ID"), ("MAIN_INV", "BRANCH_ID")}
+    expected = {"COMPANY_CODE": {"CUST"}, "FISCAL_YEAR": set(), "BRANCH_ID": {"MAIN_INV"}}
+    lines = diff_columns(actual, expected, queryable={"CUST", "MAIN_INV"}, scope_on=True)
+    assert lines == ["CUST has BRANCH_ID but the policy does not filter it (rows may leak)"]
+
+
+def test_column_diff_without_company_scope_compares_branch_only():
+    from scripts.check_sql_against_db import diff_columns
+    actual = {("ITEMS", "COMPANY_CODE"), ("ITEMS", "FISCAL_YEAR")}
+    expected = {"COMPANY_CODE": set(), "FISCAL_YEAR": set(), "BRANCH_ID": set()}
+    assert diff_columns(actual, expected, queryable={"ITEMS"}, scope_on=False) == []
+    assert len(diff_columns(actual, expected, queryable={"ITEMS"}, scope_on=True)) == 1
+
+
+def test_column_diff_flags_a_policy_table_without_the_column():
+    from scripts.check_sql_against_db import diff_columns
+    lines = diff_columns(set(), {"COMPANY_CODE": {"GHOST"}, "FISCAL_YEAR": set(), "BRANCH_ID": set()}, set(), True)
+    assert lines == ["policy says GHOST has COMPANY_CODE, the database does not (queries will fail)"]
