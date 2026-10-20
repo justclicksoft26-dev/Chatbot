@@ -249,28 +249,57 @@ def _call_groq(messages: list, temperature: float, max_tokens: int) -> str:
 
 # ── Unified call ────────────────────────────────────────────────────
 
+_RATE_LIMITED = re.compile(r"\b429\b|rate_limit|resource_?exhausted|quota", re.IGNORECASE)
+_TRANSIENT = re.compile(r"\b50[0234]\b|UNAVAILABLE|overloaded|high demand|DEADLINE_EXCEEDED|timed out|timeout|"
+                        r"connection (reset|error|aborted)|returned no text", re.IGNORECASE)
+_RETRY_DELAY = re.compile(r"retry(?: in|Delay['\"]?:?)\s*['\"]?(\d+(?:\.\d+)?)\s*s", re.IGNORECASE)
+
+
+def _int_env(name: str, default: int) -> int:
+    try:
+        return max(0, int(os.getenv(name, str(default))))
+    except ValueError:
+        return default
+
+
+def _usable_providers(primary: str) -> list[str]:
+    """Primary first, then the other one, but only providers that have an API key: falling back to a
+    provider that cannot work only replaces the real error (say, a quota) with a confusing one."""
+    order = ["groq", "gemini"] if primary == "groq" else ["gemini", "groq"]
+    keys = {"gemini": os.getenv("GEMINI_API_KEY", "").strip(), "groq": os.getenv("GROQ_API_KEY", "").strip()}
+    return [p for p in order if keys[p]] or order[:1]
+
+
+def _retry_wait(error_text: str, attempt: int) -> float:
+    """Seconds to wait before trying again: what the API asks for, else a short growing pause."""
+    found = _RETRY_DELAY.search(error_text)
+    return float(found.group(1)) + 0.5 if found else 2.0 * (attempt + 1)
+
+
 def _call_llm(messages: list, temperature: float, max_tokens: int) -> str:
-    p = _get_provider()
-    providers = ["groq", "gemini"] if p == "groq" else ["gemini", "groq"]
+    providers = _usable_providers(_get_provider())
+    max_retries = _int_env("LLM_MAX_RETRIES", 2)
+    max_wait = _int_env("LLM_RETRY_MAX_WAIT_SECONDS", 20)
     last_err = None
-    groq_retried = 0
     for prov in providers:
-        try:
-            if prov == "gemini":
-                return _call_gemini(messages, temperature, max_tokens)
-            if prov == "groq":
-                return _call_groq(messages, temperature, max_tokens)
-        except Exception as e:
-            err_s = str(e)
-            err = err_s.lower()
-            is_rate = "429" in err_s or "rate_limit" in err or "resourceexhausted" in err
-            if is_rate:
-                # Fall through to next provider immediately — no sleep.
-                # Groq daily token limits don't reset in 75s anyway.
-                log.warning(f"[LLM] {prov} rate-limited → switching to next provider")
+        call = _call_gemini if prov == "gemini" else _call_groq
+        for attempt in range(max_retries + 1):
+            try:
+                return call(messages, temperature, max_tokens)
+            except Exception as e:
+                err_s = str(e)
+                limited, transient = bool(_RATE_LIMITED.search(err_s)), bool(_TRANSIENT.search(err_s))
+                if not (limited or transient):
+                    raise
                 last_err = e
-                continue
-            raise
+                wait = _retry_wait(err_s, attempt)
+                if attempt < max_retries and wait <= max_wait:
+                    log.warning(f"[LLM] {prov} {'rate-limited' if limited else 'unavailable'}; "
+                                f"retry {attempt + 1}/{max_retries} in {wait:.1f}s")
+                    time.sleep(wait)
+                    continue
+                log.warning(f"[LLM] {prov} {'rate-limited' if limited else 'unavailable'}; giving up on it")
+                break
     raise last_err
 
 

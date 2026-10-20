@@ -9,12 +9,14 @@ Plus:
   - Dashboard vs data detection
   - Entity-based domain overrides
 """
+import os
 import re
 import json
 import logging
 from dataclasses import dataclass, field
 
 import profiles
+from infra.settings import answer_mode
 
 log = logging.getLogger("intent")
 
@@ -275,7 +277,9 @@ def classify_intent(question: str, history: list = None) -> Intent:
             break
 
     # ══ Level 2: LLM fallback (if regex missed) ══
-    if not sub_intent:
+    # Only ready-made templates need a sub_intent; in the default comments-only mode the question goes to the
+    # SQL-writing call anyway, so this extra LLM call would only double the cost, delay and quota use.
+    if not sub_intent and (answer_mode() == "templates" or os.getenv("INTENT_LLM", "").strip() == "1"):
         llm_result = _llm_classify(q, history)
         if llm_result:
             sub_intent = llm_result.get("sub_intent", "")

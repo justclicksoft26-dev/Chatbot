@@ -29,6 +29,7 @@ from infra.memory import (
 )
 from nlu.schema_loader import get_relevant_schema
 from llm.llm_client import generate_sql, format_answer, _call_llm, generate_sql_async, format_answer_async
+from infra.settings import answer_mode as _settings_answer_mode
 from infra.db import execute_read_query as execute_query  # SELECT-only pool; DML pool stays in erp_actions
 from reporting.dashboard_engine import find_dashboard_by_query, execute_dashboard
 from infra.cache import (
@@ -57,9 +58,7 @@ from reporting.executive_reports import detect_report_intent, generate_executive
 
 
 def answer_mode() -> str:
-    """ANSWER_MODE=comments (default): every data question is answered from the schema comments via the LLM.
-    ANSWER_MODE=templates: the profile's ready-made SQL templates may answer first (legacy hybrid)."""
-    return "templates" if os.getenv("ANSWER_MODE", "comments").strip().lower() == "templates" else "comments"
+    return _settings_answer_mode()
 
 
 def _permission_fingerprint(perms) -> str:
@@ -1530,6 +1529,12 @@ async def _execute_llm_controlled(
                 method="error",
                 error=err_str,
             )
+        if _LLM_BUSY.search(err_str):
+            return PipelineResult(
+                answer="نموذج اللغة مشغول حالياً — جرّب السؤال مرة أخرى بعد لحظات.",
+                method="error",
+                error=err_str,
+            )
         if _LLM_SETUP_ERROR.search(err_str):
             return PipelineResult(
                 answer="تعذّر الاتصال بنموذج اللغة — راجع مفتاح الـ LLM واسم النموذج في إعدادات الخادم (السجل يوضّح السبب).",
@@ -1542,6 +1547,8 @@ async def _execute_llm_controlled(
             error=err_str,
         )
 
+
+_LLM_BUSY = re.compile(r"\b50[34]\b|UNAVAILABLE|overloaded|high demand|DEADLINE_EXCEEDED|timed out|timeout", re.IGNORECASE)
 
 # An unusable key or model name is a configuration problem, not a problem with the question.
 _LLM_SETUP_ERROR = re.compile(

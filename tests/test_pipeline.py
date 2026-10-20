@@ -364,3 +364,32 @@ async def test_an_ordinary_failure_keeps_the_generic_message_but_is_still_logged
     with caplog.at_level("ERROR", logger="pipeline"):
         r = await ask("كم عدد فواتير المبيعات؟")
     assert "حدث خطأ" in r.answer and any("something odd" in rec.getMessage() for rec in caplog.records)
+
+
+# ── fewer LLM calls, and an overloaded model is named as such ────────
+async def test_comments_mode_makes_a_single_llm_call_per_question(world, monkeypatch):
+    """The intent LLM fallback only feeds the templates; in comments mode it just doubled cost and quota use."""
+    import nlu.intent_classifier as ic
+    classified = []
+    monkeypatch.setattr(ic, "_llm_classify", lambda *a, **k: classified.append(1) or None)
+    await ask("اعرض لي أرصدة الأصناف في المخازن بالتفصيل الممل")
+    assert classified == [] and len(world.llm.calls) == 1
+
+
+async def test_templates_mode_may_still_use_the_intent_llm(world, monkeypatch):
+    import nlu.intent_classifier as ic
+    classified = []
+    monkeypatch.setenv("ANSWER_MODE", "templates")
+    monkeypatch.setattr(ic, "_llm_classify", lambda *a, **k: classified.append(1) or None)
+    await ask("اعرض لي أرصدة الأصناف في المخازن بالتفصيل الممل")
+    assert classified == [1]
+
+
+@pytest.mark.parametrize("error", ["503 UNAVAILABLE. This model is currently experiencing high demand",
+                                   "504 DEADLINE_EXCEEDED. Deadline expired", "the read operation timed out"])
+async def test_an_overloaded_model_gets_its_own_message(world, monkeypatch, error):
+    async def boom(**kwargs):
+        raise RuntimeError(error)
+    monkeypatch.setattr(pipeline, "generate_sql_async", boom)
+    r = await ask("كم عدد فواتير المبيعات؟")
+    assert r.method == "error" and "مشغول" in r.answer

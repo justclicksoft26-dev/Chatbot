@@ -8,6 +8,9 @@ from llm import llm_client as llm
 def reset(monkeypatch):
     monkeypatch.setattr(llm, "_provider", None)
     monkeypatch.delenv("LLM_PROVIDER", raising=False)
+    monkeypatch.setenv("GEMINI_API_KEY", "g-key")
+    monkeypatch.setenv("GROQ_API_KEY", "q-key")
+    monkeypatch.setattr(llm.time, "sleep", lambda s: None)           # retries must not slow the tests
     for key in llm._usage:
         llm._usage[key] = 0
 
@@ -50,12 +53,14 @@ def _providers(monkeypatch, groq, gemini):
 
 
 def test_rate_limited_primary_falls_back_to_the_other_provider(monkeypatch):
+    monkeypatch.setenv("LLM_MAX_RETRIES", "0")
     calls = _providers(monkeypatch, RuntimeError("Error 429 rate_limit"), "from gemini")
     assert llm._call_llm([], 0, 10) == "from gemini"
     assert calls == ["groq", "gemini"]
 
 
 def test_gemini_primary_falls_back_to_groq(monkeypatch):
+    monkeypatch.setenv("LLM_MAX_RETRIES", "0")
     llm.set_provider("gemini")
     calls = _providers(monkeypatch, "from groq", RuntimeError("ResourceExhausted"))
     assert llm._call_llm([], 0, 10) == "from groq"
@@ -70,6 +75,7 @@ def test_other_errors_are_not_masked_by_fallback(monkeypatch):
 
 
 def test_all_providers_rate_limited_raises_last_error(monkeypatch):
+    monkeypatch.setenv("LLM_MAX_RETRIES", "0")
     _providers(monkeypatch, RuntimeError("429"), RuntimeError("429 again"))
     with pytest.raises(RuntimeError, match="again"):
         llm._call_llm([], 0, 10)
@@ -266,3 +272,54 @@ def test_the_client_gets_a_request_timeout(monkeypatch):
     monkeypatch.setenv("LLM_TIMEOUT_SECONDS", "junk")
     llm._get_gemini_client()
     assert seen["http_options"].timeout == 60000
+
+
+# ── retries, and only providers that can work ────────────────────────
+def test_a_busy_model_is_retried_before_giving_up_on_it(monkeypatch):
+    outcomes = iter([RuntimeError("503 UNAVAILABLE: high demand"), RuntimeError("504 DEADLINE_EXCEEDED"), "recovered"])
+    calls, waits = [], []
+
+    def groq(messages, temperature, max_tokens):
+        calls.append("groq")
+        outcome = next(outcomes)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+    monkeypatch.setattr(llm, "_call_groq", groq)
+    monkeypatch.setattr(llm.time, "sleep", waits.append)
+    assert llm._call_llm([], 0, 10) == "recovered" and calls == ["groq"] * 3 and len(waits) == 2
+
+
+def test_the_wait_follows_what_the_api_asks_for_but_never_exceeds_the_limit(monkeypatch):
+    waits = []
+    calls = _providers(monkeypatch, RuntimeError("429 RESOURCE_EXHAUSTED. Please retry in 7.2s."), "from gemini")
+    monkeypatch.setattr(llm.time, "sleep", waits.append)
+    llm._call_llm([], 0, 10)
+    assert waits[:2] == [7.7, 7.7] and calls[-1] == "gemini"
+
+    calls.clear()
+    waits.clear()
+    _providers(monkeypatch, RuntimeError("429 quota. Please retry in 300s"), "from gemini")       # far too long to wait
+    monkeypatch.setattr(llm.time, "sleep", waits.append)
+    assert llm._call_llm([], 0, 10) == "from gemini" and waits == []
+
+
+def test_a_provider_without_a_key_is_never_the_fallback(monkeypatch):
+    """Regression: a quota error from Gemini turned into 'groq model not found' because Groq was tried blindly."""
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    monkeypatch.setenv("LLM_MAX_RETRIES", "0")
+    llm.set_provider("gemini")
+    calls = _providers(monkeypatch, "never used", RuntimeError("429 RESOURCE_EXHAUSTED"))
+    with pytest.raises(RuntimeError, match="429"):
+        llm._call_llm([], 0, 10)
+    assert calls == ["gemini"]
+
+
+def test_usable_providers_order_and_filtering(monkeypatch):
+    assert llm._usable_providers("gemini") == ["gemini", "groq"]
+    assert llm._usable_providers("groq") == ["groq", "gemini"]
+    monkeypatch.delenv("GEMINI_API_KEY")
+    assert llm._usable_providers("gemini") == ["groq"]
+    monkeypatch.delenv("GROQ_API_KEY")
+    assert llm._usable_providers("gemini") == ["gemini"]            # nothing configured: keep the primary, its error is the useful one

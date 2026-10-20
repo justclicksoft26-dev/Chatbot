@@ -10,3 +10,9 @@ def default_company() -> str:
 
 def default_fiscal_year() -> str:
     return os.getenv("DEFAULT_FISCAL_YEAR", "").strip() or str(datetime.date.today().year)
+
+
+def answer_mode() -> str:
+    """comments (default): every data question is answered from the schema comments via the LLM;
+    templates: the profile's ready-made SQL templates may answer first (legacy hybrid)."""
+    return "templates" if os.getenv("ANSWER_MODE", "comments").strip().lower() == "templates" else "comments"
