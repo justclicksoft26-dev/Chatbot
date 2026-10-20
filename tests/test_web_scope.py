@@ -31,7 +31,7 @@ def test_config_defaults(client):
 def test_config_follows_the_environment(client, monkeypatch):
     monkeypatch.setenv("DEFAULT_COMPANY_CODE", " 60 ")
     monkeypatch.setenv("DEFAULT_FISCAL_YEAR", "2025")
-    assert client.get("/chat/config").json() == {"company_code": "60", "fiscal_year": "2025"}
+    assert client.get("/chat/config").json() == {"company_code": "60", "fiscal_year": "2025", "tenant_scope": True}
 
 
 def test_config_needs_the_api_key_like_the_rest_of_the_chat_api(client, monkeypatch):
