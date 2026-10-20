@@ -1519,6 +1519,8 @@ async def _execute_llm_controlled(
 
     except Exception as e:
         err_str = str(e)
+        # The reason must reach the server log: the user only sees a short message.
+        log.error("[PIPELINE] question failed (%s): %s", type(e).__name__, err_str[:600])
         # Rate limit handling
         if "429" in err_str or "rate_limit" in err_str.lower() or "resourceexhausted" in err_str.lower():
             wait = re.search(r'try again in (\d+m[\d.]+s)', err_str)
@@ -1528,11 +1530,25 @@ async def _execute_llm_controlled(
                 method="error",
                 error=err_str,
             )
+        if _LLM_SETUP_ERROR.search(err_str):
+            return PipelineResult(
+                answer="تعذّر الاتصال بنموذج اللغة — راجع مفتاح الـ LLM واسم النموذج في إعدادات الخادم (السجل يوضّح السبب).",
+                method="error",
+                error=err_str,
+            )
         return PipelineResult(
             answer="حدث خطأ — حاول إعادة صياغة السؤال بشكل أوضح.",
             method="error",
             error=err_str,
         )
+
+
+# An unusable key or model name is a configuration problem, not a problem with the question.
+_LLM_SETUP_ERROR = re.compile(
+    r"API key|API_KEY|PERMISSION_DENIED|UNAUTHENTICATED|invalid_api_key|is not found|NOT_FOUND|"
+    r"model .*(not|un)supported|ImportError|ModuleNotFoundError|\b40[0134]\b.*(model|key|api)",
+    re.IGNORECASE,
+)
 
 
 # ── Context-awareness helpers ─────────────────────────────────────

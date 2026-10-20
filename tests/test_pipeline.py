@@ -339,3 +339,28 @@ def test_answer_mode_switch(monkeypatch):
     assert pipeline.answer_mode() == "templates"
     monkeypatch.setenv("ANSWER_MODE", "nonsense")
     assert pipeline.answer_mode() == "comments"
+
+
+# ── LLM failures are logged, and a bad key or model is called what it is ──
+@pytest.mark.parametrize("error", [
+    "400 INVALID_ARGUMENT. API key not valid. Please pass a valid API key.",
+    "404 NOT_FOUND. models/foo is not found for API version v1beta",
+    "No module named 'google.genai' (ModuleNotFoundError)",
+])
+async def test_a_bad_llm_setup_is_reported_as_such_and_logged(world, caplog, monkeypatch, error):
+    async def boom(**kwargs):
+        raise RuntimeError(error)
+    monkeypatch.setattr(pipeline, "generate_sql_async", boom)
+    with caplog.at_level("ERROR", logger="pipeline"):
+        r = await ask("كم عدد فواتير المبيعات؟")
+    assert r.method == "error" and "نموذج اللغة" in r.answer
+    assert any(error[:30] in rec.getMessage() for rec in caplog.records)
+
+
+async def test_an_ordinary_failure_keeps_the_generic_message_but_is_still_logged(world, caplog, monkeypatch):
+    async def boom(**kwargs):
+        raise RuntimeError("something odd")
+    monkeypatch.setattr(pipeline, "generate_sql_async", boom)
+    with caplog.at_level("ERROR", logger="pipeline"):
+        r = await ask("كم عدد فواتير المبيعات؟")
+    assert "حدث خطأ" in r.answer and any("something odd" in rec.getMessage() for rec in caplog.records)
