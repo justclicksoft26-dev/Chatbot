@@ -122,3 +122,25 @@ def test_the_role_matrix_fails_when_an_allowed_domain_is_refused():
     checks = su.Checks(matrix_sender(set()), "k", "a", {})
     result = checks.role_matrix("warehouse", "jc_x")
     assert result[2] == "FAIL" and "inventory" in result[3]
+
+# ── the column check separates real gaps from the hundreds of tables nobody can query ──
+def test_column_diff_reports_only_tables_the_assistant_can_query():
+    from scripts.check_sql_against_db import diff_columns
+    actual = {("CUST", "BRANCH_ID"), ("CUST", "COMPANY_CODE"), ("LOG", "BRANCH_ID"), ("MAIN_INV", "BRANCH_ID")}
+    expected = {"COMPANY_CODE": {"CUST"}, "FISCAL_YEAR": set(), "BRANCH_ID": {"MAIN_INV"}}
+    lines = diff_columns(actual, expected, queryable={"CUST", "MAIN_INV"}, scope_on=True)
+    assert lines == ["CUST has BRANCH_ID but the policy does not filter it (rows may leak)"]
+
+
+def test_column_diff_without_company_scope_compares_branch_only():
+    from scripts.check_sql_against_db import diff_columns
+    actual = {("ITEMS", "COMPANY_CODE"), ("ITEMS", "FISCAL_YEAR")}
+    expected = {"COMPANY_CODE": set(), "FISCAL_YEAR": set(), "BRANCH_ID": set()}
+    assert diff_columns(actual, expected, queryable={"ITEMS"}, scope_on=False) == []
+    assert len(diff_columns(actual, expected, queryable={"ITEMS"}, scope_on=True)) == 1
+
+
+def test_column_diff_flags_a_policy_table_without_the_column():
+    from scripts.check_sql_against_db import diff_columns
+    lines = diff_columns(set(), {"COMPANY_CODE": {"GHOST"}, "FISCAL_YEAR": set(), "BRANCH_ID": set()}, set(), True)
+    assert lines == ["policy says GHOST has COMPANY_CODE, the database does not (queries will fail)"]
