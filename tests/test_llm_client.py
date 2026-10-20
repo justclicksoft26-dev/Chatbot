@@ -132,3 +132,27 @@ async def test_async_wrappers_delegate(monkeypatch):
     monkeypatch.setattr(llm, "_call_llm", lambda *a, **k: "SELECT 1 FROM DUAL")
     assert await llm.generate_sql_async("ctx", "q", "1", "2024") == "SELECT 1 FROM DUAL"
     assert "No matching" in await llm.format_answer_async("q", [], "SELECT 1")
+
+
+def test_gemini_call_builds_valid_requests_with_the_real_sdk(monkeypatch):
+    """The request objects come from the google-genai package; building them must not fail on a clean install."""
+    pytest.importorskip("google.genai")
+
+    class Response:
+        text = " answer "
+        usage_metadata = None
+
+    class Models:
+        def generate_content(self, **kwargs):
+            self.kwargs = kwargs
+            return Response()
+
+    class Client:
+        models = Models()
+
+    monkeypatch.setattr(llm, "_gemini_client", Client())
+    monkeypatch.setenv("GEMINI_MODEL", "some-model")
+    out = llm._call_gemini([{"role": "system", "content": "S"}, {"role": "user", "content": "q"},
+                            {"role": "assistant", "content": "a"}, {"role": "user", "content": "q2"}], 0.1, 50)
+    sent = Client.models.kwargs
+    assert out == "answer" and sent["model"] == "some-model" and len(sent["contents"]) == 3
