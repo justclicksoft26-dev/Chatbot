@@ -132,8 +132,8 @@ def main() -> int:
     parser.add_argument("--api-key", default=os.getenv("API_KEY", ""))
     parser.add_argument("--admin-key", default=os.getenv("ADMIN_API_KEY", ""),
                         help="X-Admin-Key; without it the server hides the SQL from ordinary users and the SQL checks fail")
-    parser.add_argument("--company", default="1")
-    parser.add_argument("--year", default="2024")
+    parser.add_argument("--company", default=os.getenv("DEFAULT_COMPANY_CODE", "1"))
+    parser.add_argument("--year", default=os.getenv("DEFAULT_FISCAL_YEAR", "2024"))
     parser.add_argument("--oracle", action="store_true", help="compare with the reference SQL on the real database")
     parser.add_argument("--delay", type=float, default=3.0, help="seconds between questions (the chat is rate limited)")
     parser.add_argument("--report-dir", default=os.path.join(os.path.dirname(__file__), "reports"))

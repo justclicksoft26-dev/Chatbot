@@ -1888,6 +1888,9 @@
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 105.64-11.36L1 10"/></svg>
           <span>محادثة جديدة</span>
         </button>
+        <button class="header-chip" onclick="editScope()" title="تغيير الشركة والسنة المالية">
+          <span id="scope-label">الشركة · السنة</span>
+        </button>
         <div class="header-chip">
           <span class="status-dot" id="status-dot"></span>
           <span id="status-label">متصل</span>
@@ -1964,9 +1967,60 @@
   let isLoading = false;
   let conversationHistory = [];
 
-  const _urlKey = new URLSearchParams(window.location.search).get('api_key');
+  const _qs = new URLSearchParams(window.location.search);
+  const _urlKey = _qs.get('key') || _qs.get('api_key');
   const API_KEY = _urlKey || localStorage.getItem('justclick_api_key') || '';
-  if (_urlKey) localStorage.setItem('justclick_api_key', _urlKey);
+  if (_urlKey) {
+    localStorage.setItem('justclick_api_key', _urlKey);
+    _qs.delete('key'); _qs.delete('api_key');                 // do not leave the key in the address bar / history
+    const _rest = _qs.toString();
+    history.replaceState(null, '', window.location.pathname + (_rest ? '?' + _rest : ''));
+  }
+
+  // Company and fiscal year every question is asked for: ?company=60&year=2025 (remembered), else the
+  // server's DEFAULT_COMPANY_CODE / DEFAULT_FISCAL_YEAR (GET /chat/config).
+  const SCOPE = {
+    company_code: _qs.get('company') || localStorage.getItem('justclick_company') || '',
+    fiscal_year: _qs.get('year') || localStorage.getItem('justclick_year') || '',
+  };
+  if (_qs.get('company')) localStorage.setItem('justclick_company', SCOPE.company_code);
+  if (_qs.get('year')) localStorage.setItem('justclick_year', SCOPE.fiscal_year);
+
+  function scopeBody() {
+    return {
+      company_code: SCOPE.company_code || '1',
+      fiscal_year: SCOPE.fiscal_year || String(new Date().getFullYear()),
+    };
+  }
+
+  function showScope() {
+    const el = document.getElementById('scope-label');
+    if (el) el.textContent = 'الشركة ' + (SCOPE.company_code || '؟') + ' · ' + (SCOPE.fiscal_year || '؟');
+  }
+
+  async function loadScopeDefaults() {
+    try {
+      const r = await fetch(API + '/chat/config', { headers: apiHeaders() });
+      if (r.ok) {
+        const cfg = await r.json();
+        if (!SCOPE.company_code) SCOPE.company_code = String(cfg.company_code || '');
+        if (!SCOPE.fiscal_year) SCOPE.fiscal_year = String(cfg.fiscal_year || '');
+      }
+    } catch (e) { /* the fallbacks of scopeBody() apply */ }
+    showScope();
+  }
+
+  function editScope() {
+    const company = prompt('كود الشركة', SCOPE.company_code || '');
+    if (company === null) return;
+    const year = prompt('السنة المالية', SCOPE.fiscal_year || '');
+    if (year === null) return;
+    SCOPE.company_code = company.trim();
+    SCOPE.fiscal_year = year.trim();
+    localStorage.setItem('justclick_company', SCOPE.company_code);
+    localStorage.setItem('justclick_year', SCOPE.fiscal_year);
+    showScope();
+  }
 
   function apiHeaders() {
     const h = { 'Content-Type': 'application/json' };
@@ -2244,8 +2298,7 @@
         headers: apiHeaders(),
         body: JSON.stringify({
           question,
-          company_code: '1',
-          fiscal_year: '2024',
+          ...scopeBody(),
           history: conversationHistory.slice(-10)
         })
       });
@@ -2348,8 +2401,7 @@
         headers: apiHeaders(),
         body: JSON.stringify({
           question,
-          company_code: '1',
-          fiscal_year: '2024',
+          ...scopeBody(),
           history: conversationHistory.slice(-10),
           user_id: 'web_user',
         })
@@ -2453,8 +2505,7 @@
           headers: apiHeaders(),
           body: JSON.stringify({
             question,
-            company_code: '1',
-            fiscal_year: '2024',
+            ...scopeBody(),
             user_id: 'web_user',
             history: conversationHistory.slice(-10)
           })
@@ -3414,6 +3465,7 @@
   (function init() {
     checkHealth();
     setInterval(checkHealth, 30000);
+    loadScopeDefaults();
     // Proactive alert polling
     pollAlertSummary();
     setInterval(pollAlertSummary, 60000);

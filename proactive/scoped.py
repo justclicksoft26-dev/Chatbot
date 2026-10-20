@@ -1,26 +1,26 @@
 """Scoped database access for the background monitors, health scores and briefings.
 
 These run without a user, so they cannot use a caller's company. They are bound to one company
-(``MONITOR_COMPANY_CODE``, default "1") and fiscal year (``MONITOR_FISCAL_YEAR``, default the current
-calendar year) and every query goes through the same scoping as chat queries. Reading the results
+(``MONITOR_COMPANY_CODE``, else ``DEFAULT_COMPANY_CODE``) and fiscal year (``MONITOR_FISCAL_YEAR``, else
+``DEFAULT_FISCAL_YEAR``) and every query goes through the same scoping as chat queries. Reading the results
 over the API requires access to that company (see ``routers.proactive``).
 """
-import datetime
 import logging
 import os
 
 from infra import db
+from infra.settings import default_company, default_fiscal_year
 from security.scope import prepare_sql
 
 log = logging.getLogger("proactive.scoped")
 
 
 def monitor_company() -> str:
-    return os.getenv("MONITOR_COMPANY_CODE", "").strip() or "1"
+    return os.getenv("MONITOR_COMPANY_CODE", "").strip() or default_company()
 
 
 def monitor_fiscal_year() -> str:
-    return os.getenv("MONITOR_FISCAL_YEAR", "").strip() or str(datetime.date.today().year)
+    return os.getenv("MONITOR_FISCAL_YEAR", "").strip() or default_fiscal_year()
 
 
 async def execute_query(sql: str, params: dict = None) -> list[dict]:
