@@ -1977,6 +1977,49 @@
     history.replaceState(null, '', window.location.pathname + (_rest ? '?' + _rest : ''));
   }
 
+  // Signed in by the host application (APEX): it opens this page in a frame as  .../#token=<signed token>  and sends a
+  // fresh one when asked. The token is short-lived and never leaves the address bar's fragment (not sent to servers
+  // or logs); it lives in sessionStorage of this tab only, and it is what tells the server who is asking.
+  const EMBEDDED = window.parent !== window;
+  let SSO_TOKEN = '';
+  try { SSO_TOKEN = sessionStorage.getItem('justclick_sso') || ''; } catch (e) { /* storage blocked: the token stays in memory */ }
+  const _hash = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+  if (_hash.get('token')) {
+    SSO_TOKEN = _hash.get('token');
+    try { sessionStorage.setItem('justclick_sso', SSO_TOKEN); } catch (e) { /* ignore */ }
+    history.replaceState(null, '', window.location.pathname + window.location.search);
+  }
+  let _ssoTimer = null;
+  function tokenExpiry(token) {                 // seconds since epoch, 0 when unreadable
+    try {
+      const p = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+      return Number(p.exp) || 0;
+    } catch (e) { return 0; }
+  }
+  function askHostForToken() {                  // the host answers with {type:'chatbot-token', token}
+    if (EMBEDDED) window.parent.postMessage({ type: 'chatbot-need-token' }, '*');
+  }
+  function scheduleTokenRefresh() {
+    clearTimeout(_ssoTimer);
+    const exp = tokenExpiry(SSO_TOKEN);
+    if (!EMBEDDED || !exp) return;
+    const wait = Math.max(5, exp - Math.floor(Date.now() / 1000) - 60) * 1000;    // a minute before it expires
+    _ssoTimer = setTimeout(askHostForToken, wait);
+  }
+  window.addEventListener('message', function (e) {
+    // only the frame's own parent may hand over a token: nobody else can open this page inside theirs
+    // (the server's frame-ancestors list decides who may embed it at all)
+    if (!EMBEDDED || e.source !== window.parent || !e.data || e.data.type !== 'chatbot-token' || !e.data.token) return;
+    SSO_TOKEN = String(e.data.token);
+    try { sessionStorage.setItem('justclick_sso', SSO_TOKEN); } catch (err) { /* ignore */ }
+    scheduleTokenRefresh();
+  });
+  if (EMBEDDED && (!SSO_TOKEN || tokenExpiry(SSO_TOKEN) <= Date.now() / 1000 + 30)) askHostForToken();
+  scheduleTokenRefresh();
+  document.addEventListener('visibilitychange', function () {   // a background tab's timer may have been paused
+    if (!document.hidden && EMBEDDED && tokenExpiry(SSO_TOKEN) <= Date.now() / 1000 + 60) askHostForToken();
+  });
+
   // Company and fiscal year every question is asked for: ?company=60&year=2025 (remembered), else the
   // server's DEFAULT_COMPANY_CODE / DEFAULT_FISCAL_YEAR (GET /chat/config).
   const SCOPE = {
@@ -2027,6 +2070,7 @@
   function apiHeaders() {
     const h = { 'Content-Type': 'application/json' };
     if (API_KEY) h['X-API-Key'] = API_KEY;
+    if (SSO_TOKEN) h['Authorization'] = 'Bearer ' + SSO_TOKEN;
     return h;
   }
 
