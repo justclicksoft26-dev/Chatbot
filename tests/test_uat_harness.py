@@ -170,3 +170,19 @@ def test_the_runner_sends_the_keys_so_the_server_includes_the_sql(server, tmp_pa
     args = args_for(server, tmp_path, api_key="api-k", admin_key="adm-k")
     run_uat.run_scenario(SPRINTS[1].scenarios[0], args)
     assert Fake.last_headers.get("X-Api-Key") == "api-k" and Fake.last_headers.get("X-Admin-Key") == "adm-k"
+
+
+def test_an_unwritable_report_folder_does_not_lose_the_results(tmp_path, monkeypatch, capsys):
+    """Regression: in Docker the report folder was not writable, the run crashed after all questions had been asked."""
+    blocked = tmp_path / "file-not-folder"
+    blocked.write_text("x")                                   # makedirs under a file raises
+    args = args_for("http://x", tmp_path, report_dir=str(blocked / "reports"))
+    path, accepted, passed, total = run_uat.write_report(SPRINTS[1], [], args)
+    assert path.endswith("sprint-1.md") and "cannot write" in capsys.readouterr().out
+    assert open(path, encoding="utf-8").read().startswith("# تقرير قبول")
+
+
+def test_the_default_report_folder_is_the_persistent_data_volume():
+    import inspect
+    source = inspect.getsource(run_uat.main)
+    assert '"data", "uat-reports"' in source and "UAT_REPORT_DIR" in source

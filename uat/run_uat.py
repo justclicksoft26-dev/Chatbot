@@ -5,7 +5,7 @@
 
 For every scenario it checks that the answer came from the schema comments (no ready-made template), that the
 generated SQL uses the expected tables / coded values, and (with --oracle) that the result equals the one of an
-independent reference query. A report is written to uat/reports/sprint-N.md. Exit code 0 = sprint accepted.
+independent reference query. A report is written to data/uat-reports/sprint-N.md. Exit code 0 = sprint accepted.
 """
 import argparse
 import asyncio
@@ -13,6 +13,7 @@ import datetime
 import json
 import os
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
@@ -118,7 +119,13 @@ def write_report(sprint, results, args) -> str:
                 lines += ["SQL المرجعي:", "```sql", r["reference"], "```"]
             if r.get("answer"):
                 lines += [f"الإجابة: {r['answer']}"]
-    os.makedirs(args.report_dir, exist_ok=True)
+    try:
+        os.makedirs(args.report_dir, exist_ok=True)
+    except OSError as exc:                                                 # an unwritable folder must not lose the results
+        fallback = os.path.join(tempfile.gettempdir(), "uat-reports")
+        print(f"  (cannot write to {args.report_dir}: {exc}; using {fallback})")
+        args.report_dir = fallback
+        os.makedirs(fallback, exist_ok=True)
     path = os.path.join(args.report_dir, f"sprint-{sprint.number}.md")
     with open(path, "w", encoding="utf-8") as fh:
         fh.write("\n".join(lines) + "\n")
@@ -136,7 +143,8 @@ def main() -> int:
     parser.add_argument("--year", default=os.getenv("DEFAULT_FISCAL_YEAR", "2024"))
     parser.add_argument("--oracle", action="store_true", help="compare with the reference SQL on the real database")
     parser.add_argument("--delay", type=float, default=3.0, help="seconds between questions (the chat is rate limited)")
-    parser.add_argument("--report-dir", default=os.path.join(os.path.dirname(__file__), "reports"))
+    parser.add_argument("--report-dir", default=os.getenv("UAT_REPORT_DIR", os.path.join("data", "uat-reports")),
+                        help="where the sprint reports are written (data/ is a persistent volume in Docker)")
     args = parser.parse_args()
 
     numbers = sorted(SPRINTS) if args.sprint == "all" else [int(args.sprint)]

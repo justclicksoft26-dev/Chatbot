@@ -43,7 +43,7 @@ docker compose logs -f app      # انتظر "Application startup complete" ثم
 ```bash
 docker compose exec app python -m uat.run_uat --sprint 1 --company 1 --year 2024 --oracle \
     --base-url http://localhost:8000 --api-key "$API_KEY"
-docker compose cp app:/app/uat/reports ./uat-reports     # لتنسخ التقرير وتقرأه
+docker compose cp app:/app/data/uat-reports ./uat-reports     # لتنسخ التقرير وتقرأه
 ```
 
 ## التشغيل اليومي
