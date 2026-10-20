@@ -23,11 +23,14 @@ from uat.scenario import check_response, rows_match  # noqa: E402
 from uat.scenarios import SPRINTS  # noqa: E402
 
 
-def ask(base_url: str, api_key: str, question: str, company: str, year: str, user: str, timeout: int = 120) -> dict:
+def ask(base_url: str, api_key: str, question: str, company: str, year: str, user: str, timeout: int = 180,
+        admin_key: str = "") -> dict:
     body = json.dumps({"question": question, "company_code": company, "fiscal_year": year, "user_id": user}).encode()
     headers = {"Content-Type": "application/json"}
     if api_key:
         headers["X-API-Key"] = api_key
+    if admin_key:
+        headers["X-Admin-Key"] = admin_key          # lets the server include the generated SQL in the reply
     req = urllib.request.Request(base_url.rstrip("/") + "/chat/", data=body, headers=headers, method="POST")
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
@@ -65,7 +68,8 @@ def run_scenario(sc, args) -> dict:
             values[name] = list(rows[0].values())[0]
     question = fill(sc.question, values)
     started = time.time()
-    resp = ask(args.base_url, args.api_key, question, args.company, args.year, f"uat-{sc.id}-{int(started)}")
+    resp = ask(args.base_url, args.api_key, question, args.company, args.year, f"uat-{sc.id}-{int(started)}",
+               admin_key=getattr(args, "admin_key", ""))
     elapsed = round(time.time() - started, 1)
     if "_http_error" in resp:
         return {"id": sc.id, "question": question, "status": "FAIL", "problems": [f"فشل الطلب (HTTP {resp['_http_error']}): {resp['answer']}"],
@@ -126,6 +130,8 @@ def main() -> int:
     parser.add_argument("--sprint", default="1", help="1 | 2 | 3 | all")
     parser.add_argument("--base-url", default=os.getenv("UAT_BASE_URL", "http://localhost:8000"))
     parser.add_argument("--api-key", default=os.getenv("API_KEY", ""))
+    parser.add_argument("--admin-key", default=os.getenv("ADMIN_API_KEY", ""),
+                        help="X-Admin-Key; without it the server hides the SQL from ordinary users and the SQL checks fail")
     parser.add_argument("--company", default="1")
     parser.add_argument("--year", default="2024")
     parser.add_argument("--oracle", action="store_true", help="compare with the reference SQL on the real database")

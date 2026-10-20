@@ -80,17 +80,49 @@ def set_provider(name: str):
 _gemini_client = None
 
 
+GEMINI_DEFAULT_MODEL = "gemini-3.8-flash"      # Google retires models; set GEMINI_MODEL in .env to change
+_thinking_supported = True                       # turned off for the process if the API rejects the setting
+
+
+def gemini_model() -> str:
+    return os.getenv("GEMINI_MODEL", "").strip() or GEMINI_DEFAULT_MODEL
+
+
+def _llm_timeout_seconds() -> int:
+    try:
+        return max(5, int(os.getenv("LLM_TIMEOUT_SECONDS", "60")))
+    except ValueError:
+        return 60
+
+
 def _get_gemini_client():
     global _gemini_client
     if _gemini_client is None:
         from google import genai
-        _gemini_client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
-        log.info(f"[LLM] Gemini client ready, model={os.getenv('GEMINI_MODEL', 'gemini-3.6-flash')}")
+        from google.genai import types
+        # without a timeout one stuck request would keep a question "processing" forever
+        _gemini_client = genai.Client(
+            api_key=os.getenv("GEMINI_API_KEY"),
+            http_options=types.HttpOptions(timeout=_llm_timeout_seconds() * 1000),
+        )
+        log.info(f"[LLM] Gemini client ready, model={gemini_model()}, timeout={_llm_timeout_seconds()}s")
     return _gemini_client
 
 
+def _thinking_config(types):
+    """Writing SQL needs little reasoning, and hidden "thinking" is what makes answers take a minute.
+    GEMINI_THINKING_LEVEL (default "low"; "off"/"default" = leave the model's own setting)."""
+    level = os.getenv("GEMINI_THINKING_LEVEL", "low").strip().lower()
+    if not _thinking_supported or level in ("", "off", "default", "none"):
+        return None
+    try:
+        return types.ThinkingConfig(thinking_level=level)
+    except Exception:                                      # an SDK without the field
+        return None
+
+
 def _call_gemini(messages: list, temperature: float, max_tokens: int) -> str:
-    from google import genai
+    global _thinking_supported
     from google.genai import types
 
     system_text = ""
@@ -106,20 +138,39 @@ def _call_gemini(messages: list, temperature: float, max_tokens: int) -> str:
                 parts=[types.Part(text=msg["content"])]))
 
     client = _get_gemini_client()
-    model_name = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
-    cfg = types.GenerateContentConfig(
-        temperature=temperature,
-        max_output_tokens=max_tokens,
-        system_instruction=system_text.strip() if system_text else None,
-    )
-    resp = client.models.generate_content(
-        model=model_name, contents=contents, config=cfg
-    )
-    if resp.usage_metadata:
-        _track_usage(
-            resp.usage_metadata.prompt_token_count or 0,
-            resp.usage_metadata.candidates_token_count or 0,
+    model_name = gemini_model()
+
+    def run(thinking):
+        cfg = types.GenerateContentConfig(
+            temperature=temperature,
+            max_output_tokens=max_tokens,
+            system_instruction=system_text.strip() if system_text else None,
+            thinking_config=thinking,
         )
+        return client.models.generate_content(model=model_name, contents=contents, config=cfg)
+
+    started = time.time()
+    thinking = _thinking_config(types)
+    try:
+        resp = run(thinking)
+    except Exception as exc:
+        # a model that does not know the thinking setting answers 400 mentioning it: retry once without
+        if thinking is not None and "thinking" in str(exc).lower():
+            log.warning(f"[LLM] {model_name} rejected the thinking setting; continuing without it")
+            _thinking_supported = False
+            resp = run(None)
+        else:
+            raise
+
+    usage = resp.usage_metadata
+    if usage:
+        _track_usage(usage.prompt_token_count or 0, usage.candidates_token_count or 0)
+    log.info("[LLM] gemini %s %.1fs prompt=%s out=%s thoughts=%s", model_name, time.time() - started,
+             getattr(usage, "prompt_token_count", "-"), getattr(usage, "candidates_token_count", "-"),
+             getattr(usage, "thoughts_token_count", "-"))
+    if not resp.text:
+        reason = getattr(resp.candidates[0], "finish_reason", "?") if getattr(resp, "candidates", None) else "?"
+        raise RuntimeError(f"the model returned no text (finish_reason={reason})")
     return resp.text.strip()
 
 

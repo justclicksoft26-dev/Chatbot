@@ -20,7 +20,7 @@ from nlu.query_templates import list_templates
 from infra.cache import get_all_stats as get_cache_stats, invalidate_all, sql_cache, dash_cache
 from security.company_manager import get_user_companies
 from security import rbac as _rbac
-from routers.auth import caller_id, require_admin
+from routers.auth import caller_id, has_admin_key, require_admin
 from routers.schemas import ScopeValue
 
 log = logging.getLogger("chat")
@@ -130,7 +130,7 @@ async def chat(req: ChatRequest, request: Request):
         export_for_response = result.export_available
         try:
             perms = _rbac.get_user_permissions(effective_user_id)
-            if not perms.can_view_sql:
+            if not perms.can_view_sql and not has_admin_key(request):
                 sql_for_response = ""
             if not perms.can_export:
                 export_for_response = None

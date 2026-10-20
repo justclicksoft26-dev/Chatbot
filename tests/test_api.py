@@ -301,3 +301,12 @@ def test_web_page_opens_without_a_key_but_the_api_stays_protected(client, monkey
     assert client.post("/chat/", json={"question": "hi"}).status_code == 401
     assert client.get("/health/detail").status_code == 401
     assert client.get("/chat/alerts").status_code == 401
+
+
+def test_admin_key_makes_the_chat_reply_include_the_sql(client, fake_pipeline, monkeypatch):
+    """Ordinary users never see the generated SQL; the acceptance runner sends the admin key to read it."""
+    monkeypatch.setenv("ADMIN_API_KEY", "adm")
+    body = {"question": "hi", "user_id": "plain-user"}
+    assert client.post("/chat/", json=body).json()["sql_generated"] == ""
+    assert client.post("/chat/", json=body, headers={"X-Admin-Key": "wrong"}).json()["sql_generated"] == ""
+    assert client.post("/chat/", json=body, headers={"X-Admin-Key": "adm"}).json()["sql_generated"].startswith("SELECT")

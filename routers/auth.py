@@ -34,6 +34,13 @@ async def ensure_company_access(user_id: str, company_code: str) -> None:
         raise HTTPException(status_code=403, detail="ليس لديك صلاحية على هذه الشركة.")
 
 
+def has_admin_key(request: Request) -> bool:
+    """True when the request carries the valid X-Admin-Key (used to show internals such as the SQL)."""
+    admin_key = os.getenv("ADMIN_API_KEY", "").strip()
+    supplied = request.headers.get("X-Admin-Key", "")
+    return bool(admin_key and supplied and hmac.compare_digest(supplied.encode(), admin_key.encode()))
+
+
 def require_admin(request: Request) -> None:
     """Allow the request only for an administrator.
 
