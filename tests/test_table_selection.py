@@ -54,3 +54,15 @@ def test_a_legend_is_not_duplicated_when_the_cap_did_not_cut_it():
 ])
 def test_a_refusal_written_as_sql_is_not_executed(sql, expected):
     assert pipeline._is_message_only_sql(sql) is expected
+
+
+def test_an_english_question_finds_the_invoice_table_from_the_english_line_in_its_comment():
+    primary, _ = schema_loader._select_tables_tiered("How many purchase invoices do we have?")
+    assert "MAIN_INV" in primary
+
+
+def test_english_synonyms_resolve_to_the_arabic_legend_meaning_without_changing_it():
+    from nlu import lexical_layer, semantic_registry
+    assert semantic_registry.meaning_candidates("INVTYPE") == ["بيع", "شراء"]
+    lex = lexical_layer._compile()
+    assert lex["purchase"] == "شراء" and lex["sales"] == "بيع"

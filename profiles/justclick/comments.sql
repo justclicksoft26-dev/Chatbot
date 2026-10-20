@@ -17,7 +17,9 @@ COMMENT ON TABLE MAIN_INV IS
      لجلب مبيعات نقية    : WHERE INVTYPE=0 AND RETURN_FLAG=0.
      لجلب مرتجعات البيع  : WHERE INVTYPE=0 AND RETURN_FLAG=1.
      لجلب مشتريات نقية   : WHERE INVTYPE=1 AND RETURN_FLAG=0.
-     صافي المبيعات = SUM(FINALTOTAL WHERE RETURN_FLAG=0) - SUM(FINALTOTAL WHERE RETURN_FLAG=1).';
+     صافي المبيعات = SUM(FINALTOTAL WHERE RETURN_FLAG=0) - SUM(FINALTOTAL WHERE RETURN_FLAG=1).
+     English: sales and purchase invoice header. Sales invoices have INVTYPE=0 and purchase invoices have
+     INVTYPE=1; a return has RETURN_FLAG=1. The customer or supplier on the invoice is CUST_ID with CUST_TYPE.';
 
 -- [dump]
 COMMENT ON COLUMN MAIN_INV.INVID IS
@@ -33,7 +35,8 @@ COMMENT ON COLUMN MAIN_INV.INV_KEY IS
 
 -- [dump]
 COMMENT ON COLUMN MAIN_INV.INVTYPE IS
-  'نوع الفاتورة : 0=بيع , 1=شراء';
+  'نوع الفاتورة : 0=بيع , 1=شراء.
+     @lex بيع = sales | sale | selling ؛ شراء = purchase | purchases | buying';
 
 -- [dump]
 COMMENT ON COLUMN MAIN_INV.RETURN_FLAG IS

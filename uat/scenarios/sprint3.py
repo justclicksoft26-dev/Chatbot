@@ -14,7 +14,8 @@ SPRINT = Sprint(
                                 f"WHERE INVTYPE = 0 AND TRUNC(INVDATE, 'MM') = TRUNC(SYSDATE, 'MM') AND {S}")),
         Scenario("3.2", "إجمالي مشتريات السنة", tables=["MAIN_INV"], sql_has=[r"INVTYPE\s*=\s*1"],
                  reference_sql=("SELECT NVL(SUM(DECODE(RETURN_FLAG, 0, FINALTOTAL, -FINALTOTAL)), 0) FROM MAIN_INV "
-                                f"WHERE INVTYPE = 1 AND {S}")),
+                                f"WHERE INVTYPE = 1 AND TRUNC(INVDATE, 'YYYY') = TRUNC(SYSDATE, 'YYYY') AND {S}"),
+                 why="«السنة» = السنة الحالية من تاريخ الفاتورة"),
         Scenario("3.3", "كم عدد فواتير المبيعات اليوم؟", tables=["MAIN_INV"], sql_has=[r"SYSDATE"],
                  reference_sql=("SELECT COUNT(*) FROM MAIN_INV WHERE INVTYPE = 0 AND RETURN_FLAG = 0 "
                                 f"AND TRUNC(INVDATE) = TRUNC(SYSDATE) AND {S}")),

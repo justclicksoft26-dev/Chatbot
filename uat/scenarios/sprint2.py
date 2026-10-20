@@ -20,7 +20,7 @@ SPRINT = Sprint(
                  why="المرتجع = RETURN_FLAG 1، وهو غير الفاتورة العادية"),
         Scenario("2.5", "كم مرتجع مشتريات؟", tables=["MAIN_INV"], sql_has=[r"RETURN_FLAG\s*=\s*1", r"INVTYPE\s*=\s*1"],
                  reference_sql=f"SELECT COUNT(*) FROM MAIN_INV WHERE INVTYPE = 1 AND RETURN_FLAG = 1 AND {S}"),
-        Scenario("2.6", "الزباين الكلية", tables=["CUST"], sql_has=[r"CUST_TYPE\s*=\s*0"],
+        Scenario("2.6", "كم عدد الزباين؟", tables=["CUST"], sql_has=[r"CUST_TYPE\s*=\s*0"],
                  reference_sql=f"SELECT COUNT(*) FROM CUST WHERE CUST_TYPE = 0 AND {S}",
                  why="«زبون» مرادف لـ «عميل» (من @lex في التعليقات)"),
         Scenario("2.7", "عدد التجار اللي بنشتري منهم", tables=["CUST"], sql_has=[r"CUST_TYPE\s*=\s*1"],
