@@ -1,0 +1,27 @@
+# Use this when the server already runs nginx on 80/443 (so Caddy from docker-compose.yml cannot start).
+# 1) publish the app on the loopback only, on a free port (8610 here), with docker-compose.override.yml:
+#        services:
+#          app:
+#            ports:
+#              - "127.0.0.1:8610:8000"
+#    and start only the app:   docker compose up -d app
+# 2) save this as /etc/nginx/conf.d/chatbot.conf (replace chat.example.com), then:
+#        sudo nginx -t && sudo systemctl reload nginx
+#        sudo certbot --nginx -d chat.example.com --redirect
+server {
+    listen 80;
+    server_name chat.example.com;
+
+    client_max_body_size 12m;           # image upload
+
+    location / {
+        proxy_pass http://127.0.0.1:8610;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_buffering off;            # keeps streamed answers flowing (SSE)
+        proxy_read_timeout 300s;        # slow questions
+    }
+}
