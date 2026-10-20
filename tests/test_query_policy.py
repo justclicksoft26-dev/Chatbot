@@ -13,7 +13,7 @@ def norm(sql):
 
 # ── classification ─────────────────────────────────────────────────────
 def test_reference_tables_only():
-    assert classify_query("SELECT * FROM CHARTS") == QueryType.REFERENCE
+    assert classify_query("SELECT * FROM UNITS") == QueryType.REFERENCE
 
 
 def test_group_by_company_is_aggregation():
@@ -38,7 +38,7 @@ def test_policy_decisions():
     assert t.apply_company and t.apply_fiscal
     a = decide_policy("SELECT TO_CHAR(d,'YYYY-MM') FROM MAIN_INV", company_code="1", fiscal_year="2024")
     assert a.apply_company and not a.apply_fiscal
-    r = decide_policy("SELECT * FROM CHARTS", company_code="1", fiscal_year="2024")
+    r = decide_policy("SELECT * FROM UNITS", company_code="1", fiscal_year="2024")
     assert not r.apply_company and not r.apply_fiscal
 
 
@@ -75,7 +75,7 @@ def test_no_scope_returns_sql_untouched():
 
 
 def test_reference_query_is_untouched():
-    sql = "SELECT * FROM CHARTS"
+    sql = "SELECT * FROM UNITS"
     assert apply_policy(sql, company_code="1") == sql
 
 
@@ -217,7 +217,7 @@ def test_comparison_by_question_wording_is_limited_too():
 
 
 def test_restriction_ignores_reference_tables():
-    sql = "SELECT * FROM CHARTS"
+    sql = "SELECT * FROM UNITS"
     assert apply_policy(sql, company_code="1", allowed_companies={"1"}) == sql
 
 
@@ -282,3 +282,9 @@ def test_join_without_on_uses_the_alias_correctly():
 def test_aliases_never_swallow_keywords():
     refs = qp._extract_table_aliases("SELECT * FROM CUST WHERE X = 1 ORDER BY 1")
     assert refs == [("CUST", "")]
+
+
+# ── the chart of accounts belongs to one company and year ──────────────
+def test_chart_of_accounts_is_scoped_like_any_tenant_table():
+    out = norm(apply_policy("SELECT COUNT(*) FROM CHARTS", company_code="60", fiscal_year="2025"))
+    assert "COMPANY_CODE = 60" in out and "FISCAL_YEAR = 2025" in out

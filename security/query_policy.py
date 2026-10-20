@@ -30,7 +30,7 @@ Query Classifications:
     → NO COMPANY_CODE, NO FISCAL_YEAR (user controls scope)
   AGGREGATION   — Consolidated reports (GROUP BY company/year)
     → NO filters (the whole point is aggregation)
-  REFERENCE     — Config/lookup tables (CHARTS, ITEMGROUP, etc.)
+  REFERENCE     — Config/lookup tables (ITEMGROUP, UNITS, etc.)
     → NO filters (these tables don't have tenant columns)
 
 Design Principles:
@@ -98,18 +98,18 @@ TENANT_TABLES = {
     "VOUCHERS", "VOUCHERS_DET",
     "EMPLOYEES", "EMPLOYEE_SALARIES", "ATT_EMP",
     "EMP_VACATION", "EMP_LOANS", "PAYED", "MAIN_INV_PAYED",
-    "ITEM_CARD",
+    "ITEM_CARD", "CHARTS",
 }
 
 # Tables that have FISCAL_YEAR column
 FISCAL_TABLES = {
     "MAIN_INV", "DETAIL_INV", "VOUCHERS", "VOUCHERS_DET",
-    "TRANSACTION", "TRANSACTION_TOT", "PAYED", "MAIN_INV_PAYED",
+    "TRANSACTION", "TRANSACTION_TOT", "PAYED", "MAIN_INV_PAYED", "CHARTS",
 }
 
 # Reference/config tables (NEVER get any tenant filter)
 REFERENCE_TABLES = {
-    "CHARTS", "ITEMGROUP", "UNITS", "COST_CENTERS", "COMPANIES",
+    "ITEMGROUP", "UNITS", "COST_CENTERS", "COMPANIES",
     "BRANCHES", "LOOK_UP", "LOOK_UP_PARENT", "CHARTS_ELEMENTS",
     "METHOD_SETUP", "INV_CATEGORIES", "INV_EFFECTS",
     "INV_EFFECTS_RULES", "PRICE_LIST", "SAL_PURCH_TRANS_TYPE",
