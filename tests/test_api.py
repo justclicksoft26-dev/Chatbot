@@ -289,3 +289,15 @@ def test_scope_validation_on_actions_endpoints(client, actions_on):
     r = client.post("/actions/plan", json={"question": "x", "user_id": "boss", "company_code": "1; DROP"})
     assert r.status_code == 422
     assert client.get("/actions/workflow/summary?company_code=1%20OR%201%3D1").status_code == 422
+
+
+def test_web_page_opens_without_a_key_but_the_api_stays_protected(client, monkeypatch):
+    """Regression: "/".rstrip("/") became "" which is not in the public paths, so the page itself returned 401."""
+    monkeypatch.setattr(app_module, "_API_KEY", "secret")
+    page = client.get("/")
+    assert page.status_code == 200 and "<html" in page.text.lower()
+    assert client.get("/health").status_code == 200
+    assert client.get("/static/index.html").status_code == 200
+    assert client.post("/chat/", json={"question": "hi"}).status_code == 401
+    assert client.get("/health/detail").status_code == 401
+    assert client.get("/chat/alerts").status_code == 401

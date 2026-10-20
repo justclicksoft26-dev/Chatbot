@@ -175,7 +175,7 @@ class ApiKeyMiddleware(BaseHTTPMiddleware):
         if not _API_KEY:
             return await call_next(request)
 
-        path = request.url.path.rstrip("/")
+        path = request.url.path.rstrip("/") or "/"        # "/" must stay "/" (the web page itself)
 
         # Public paths don't need auth
         if path in _PUBLIC_PATHS or path.startswith("/static"):

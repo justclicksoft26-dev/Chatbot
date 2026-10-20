@@ -66,6 +66,24 @@ docker compose cp app:/app/uat/reports ./uat-reports     # لتنسخ التقر
   استخدم `AUTH_MODE=jwt` (السبرنت 4).
 - شارك الرابط مع من تثق بهم فقط؛ وغيّر `API_KEY` إن تسرب (عدّل `.env` ثم `docker compose up -d`).
 
+## إن كان على السيرفر nginx يستخدم 80 و443 (حالة شائعة)
+
+Caddy من `docker-compose.yml` لن يعمل لأن البورتين محجوزان. استخدم nginx الموجود:
+
+1. اختر بورتاً **غير مستخدم** على الجهاز المحلي (ليس 8000 غالباً، قد يكون لتطبيق آخر): `sudo ss -ltn | grep :8610`.
+2. أنشئ `docker-compose.override.yml` بجانب `docker-compose.yml`:
+   ```yaml
+   services:
+     app:
+       ports:
+         - "127.0.0.1:8610:8000"      # للجهاز المحلي فقط، لا يظهر على الإنترنت
+   ```
+   وشغّل التطبيق وحده: `docker compose up -d app` (بدون Caddy).
+3. أضف الموقع بملف **جديد** `/etc/nginx/conf.d/chatbot.conf` من `deploy/nginx.conf.example`، ثم
+   `sudo nginx -t && sudo systemctl reload nginx` ثم `sudo certbot --nginx -d نطاقك --redirect`.
+4. في `.env`: `CORS_ORIGINS=https://نطاقك` ثم `docker compose up -d app`.
+5. اختبر: `curl -s localhost:8610/health` يعطي `"database":"connected"` (المفتاح `database`)، وافتح `https://نطاقك/?key=<API_KEY>`.
+
 ## إن لم تجرّب Docker
 
 يمكن التشغيل مباشرة: `pip install -r requirements.txt` ثم
