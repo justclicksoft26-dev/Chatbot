@@ -18,6 +18,7 @@ from routers import chat, widget, upload, learning as learning_router, proactive
 from routers import actions as actions_router, exports as exports_router
 from routers import stream as stream_router
 from routers.auth import require_admin
+from security import rbac
 from nlu.schema_loader import init_schema_context
 from infra.cache import get_all_stats as get_cache_stats, invalidate_all as invalidate_cache, cleanup_all_expired
 
@@ -171,14 +172,22 @@ class ApiKeyMiddleware(BaseHTTPMiddleware):
     """Require X-API-Key header when API_KEY is set in .env."""
 
     async def dispatch(self, request: Request, call_next):
-        # Skip if no API_KEY configured (dev mode)
-        if not _API_KEY:
+        keys_mode = rbac.auth_mode() == "keys"
+        # Skip if no API_KEY configured (dev mode) — never in AUTH_MODE=keys: every caller must hold a key
+        if not _API_KEY and not keys_mode:
             return await call_next(request)
 
         path = request.url.path.rstrip("/") or "/"        # "/" must stay "/" (the web page itself)
 
         # Public paths don't need auth
         if path in _PUBLIC_PATHS or path.startswith("/static"):
+            return await call_next(request)
+
+        if keys_mode:                                       # a personal key, or the service key
+            try:
+                rbac.identity_from_key(request.headers.get("X-API-Key", ""))
+            except rbac.AuthenticationRequired:
+                return JSONResponse(status_code=401, content={"detail": "المفتاح غير صالح — استخدم مفتاحك الشخصي"})
             return await call_next(request)
 
         # Only check header — query param removed for security (key visible in logs/URLs)

@@ -17,6 +17,7 @@ Row-level security:
   - domain restrictions (per-role)
   - sensitive column masking (PII)
 """
+import hmac
 import os
 import re
 import logging
@@ -312,6 +313,24 @@ class AuthenticationRequired(Exception):
     """AUTH_MODE=jwt and the request carried no valid bearer token."""
 
 
+MASTER_USER = "master"
+
+
+def identity_from_key(key: str) -> str:
+    """AUTH_MODE=keys: the user holding this key (security/users.py), or the master identity for the
+    service key API_KEY. The user_id sent in the request body is ignored."""
+    from security import users
+    record = users.authenticate(key)
+    if record:
+        assign_role(record["user_id"], record["role"], record.get("company_code", "1"), record.get("branches", []))
+        return record["user_id"]
+    master = os.getenv("API_KEY", "").strip()
+    if master and key and hmac.compare_digest(key.encode(), master.encode()):
+        assign_role(MASTER_USER, "admin")
+        return MASTER_USER
+    raise AuthenticationRequired("a valid personal key is required")
+
+
 def resolve_user_id(headers: dict, claimed_user_id: str) -> str:
     """Decide which identity a request runs as.
 
@@ -319,6 +338,8 @@ def resolve_user_id(headers: dict, claimed_user_id: str) -> str:
     token, jwt mode is a hard failure, while api_key/dev mode trusts the body
     (access is then gated by the X-API-Key middleware, not per user).
     """
+    if _AUTH_MODE == "keys":
+        return identity_from_key(headers.get("x-api-key", ""))
     verified = authenticate_request(headers)
     if verified:
         if verified != claimed_user_id:
@@ -410,7 +431,7 @@ def is_enforced(user_id: str) -> bool:
     """
     if os.getenv("RBAC_STRICT", "").strip().lower() in ("1", "true", "yes"):
         return True
-    return auth_mode() == "jwt" or user_id in _user_roles
+    return auth_mode() in ("jwt", "keys") or user_id in _user_roles
 
 
 def enforced_permissions(user_id: str) -> Optional[UserRole]:

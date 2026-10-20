@@ -18,6 +18,8 @@ def caller_id(request: Request, claimed_user_id: str = "") -> str:
     try:
         return rbac.resolve_user_id(dict(request.headers), claimed_user_id)
     except rbac.AuthenticationRequired:
+        if rbac.auth_mode() == "keys":
+            raise HTTPException(status_code=401, detail="المفتاح غير صالح — استخدم مفتاحك الشخصي في X-API-Key")
         raise HTTPException(
             status_code=401,
             detail="المصادقة مطلوبة — يرجى إرسال Authorization: Bearer <token> صالح",
@@ -60,6 +62,13 @@ def require_admin(request: Request) -> None:
         verified = rbac.authenticate_request(dict(request.headers))
         if verified and is_admin(verified):
             return
+
+    if rbac.auth_mode() == "keys":
+        try:
+            if is_admin(rbac.identity_from_key(request.headers.get("X-API-Key", ""))):
+                return
+        except rbac.AuthenticationRequired:
+            pass
 
     if os.getenv("ALLOW_INSECURE_ADMIN", "").strip() == "1":
         return

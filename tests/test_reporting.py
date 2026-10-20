@@ -214,7 +214,7 @@ async def test_pipeline_dashboard_is_not_shared_between_permission_sets(db):
 async def test_dashboard_of_a_forbidden_domain_is_refused(db):
     rbac.assign_role("wh", "warehouse", company_code="1")
     r = await pipeline.process_question("لوحة الموارد البشرية", user_id="wh", company_code="1")
-    assert r.method == "error" and db.calls == []
+    assert r.method == "permission_denied" and db.calls == []
 
 
 # ── export endpoint ────────────────────────────────────────────────────

@@ -19,6 +19,7 @@ log = logging.getLogger("schema")
 
 _table_comments: dict[str, str] = {}
 _column_comments: dict[str, dict[str, str]] = {}
+_table_domains: dict[str, str] = {}          # TABLE -> business domain, from the "@domain x" tag in its comment
 _fk_lines: list[str] = []
 _full_context: Optional[str] = None
 _flag_concept_map: Optional[dict] = None   # derived from comments, lazily built
@@ -47,13 +48,13 @@ ALWAYS_INCLUDE = {"COMPANIES", "BRANCHES"}
 
 
 async def init_schema_context() -> None:
-    global _table_comments, _column_comments, _fk_lines, _full_context, _flag_concept_map, _comments_mtime
+    global _table_comments, _column_comments, _table_domains, _fk_lines, _full_context, _flag_concept_map, _comments_mtime
     _flag_concept_map = None   # rebuild from fresh comments
 
     comments_file = _get_comments_file()
     if comments_file.exists():
         sql_text = comments_file.read_text(encoding="utf-8")
-        _table_comments, _column_comments = _parse_comments_file(sql_text)
+        _table_comments, _column_comments, _table_domains = _parse_comments_with_domains(sql_text)
         try:
             _comments_mtime = comments_file.stat().st_mtime   # baseline for hot-reload
         except OSError:
@@ -120,7 +121,7 @@ def _maybe_reload_comments() -> None:
     - Invalidates the downstream caches built from the OLD comments (schema_cache,
       response_cache) so new behaviour appears on the very next request.
     """
-    global _table_comments, _column_comments, _full_context, _flag_concept_map, _comments_mtime
+    global _table_comments, _column_comments, _table_domains, _full_context, _flag_concept_map, _comments_mtime
     try:
         f = _get_comments_file()
         if not f.exists():
@@ -132,7 +133,7 @@ def _maybe_reload_comments() -> None:
             if m == _comments_mtime:
                 return  # another thread already reloaded
             text = f.read_text(encoding="utf-8")
-            new_tc, new_cc = _parse_comments_file(text)
+            new_tc, new_cc, new_dom = _parse_comments_with_domains(text)
             if not new_tc:
                 log.warning("[SCHEMA] hot-reload parsed 0 tables — keeping previous cache")
                 return
@@ -140,6 +141,7 @@ def _maybe_reload_comments() -> None:
             # then full context, then mtime LAST (gate stays closed until fully built)
             _table_comments = new_tc
             _column_comments = new_cc
+            _table_domains = new_dom
             _flag_concept_map = None                       # rebuilt lazily from new comments
             _full_context = _build_tables_context(set(new_tc.keys()))
             _comments_mtime = m
@@ -251,7 +253,7 @@ def get_schema_debug_info(question: str = "") -> dict:
     }
 
 
-def get_relevant_schema(question: str) -> str:
+def get_relevant_schema(question: str, allowed_tables: "set | None" = None) -> str:
     """Build schema context with only relevant tables for the question.
 
     P0/F1: two-tier by default (primary = full meaning, referenced = name-only).
@@ -262,7 +264,7 @@ def get_relevant_schema(question: str) -> str:
         raise RuntimeError("Schema context not initialized.")
 
     if os.getenv("SCHEMA_TIERED", "1") != "0":
-        primary, referenced = _select_tables_tiered(question)
+        primary, referenced = _select_tables_tiered(question, allowed_tables)
         ctx = _build_tiered_context(primary, referenced)
         log.info(f"[SCHEMA] tiered: {len(primary)} primary + {len(referenced)} referenced, "
                  f"context={len(ctx)} chars")
@@ -275,9 +277,21 @@ def get_relevant_schema(question: str) -> str:
 
 # ── Internal helpers ────────────────────────────────────────────────
 
+_DOMAIN_TAG = re.compile(r'@domain\s+(\w+)')
+
+
 def _parse_comments_file(sql_text: str) -> tuple[dict, dict]:
+    table_comments, column_comments, _ = _parse_comments_with_domains(sql_text)
+    return table_comments, column_comments
+
+
+def _parse_comments_with_domains(sql_text: str) -> tuple[dict, dict, dict]:
+    """(table comments, column comments, domains). The tag ``@domain invoicing`` written inside a table
+    comment says which business area the table belongs to (it decides who may read it); it is removed
+    from the text the model and the matcher see."""
     table_comments: dict[str, str] = {}
     column_comments: dict[str, dict[str, str]] = {}
+    domains: dict[str, str] = {}
 
     sql_clean = re.sub(r'--[^\n]*', '', sql_text)
 
@@ -293,12 +307,27 @@ def _parse_comments_file(sql_text: str) -> tuple[dict, dict]:
         text   = re.sub(r'\s+', ' ', text).strip()
 
         if kind == "TABLE":
+            tag = _DOMAIN_TAG.search(text)
+            if tag:
+                domains[target] = tag.group(1).lower()
+                text = re.sub(r'\s+', ' ', _DOMAIN_TAG.sub('', text)).strip()
             table_comments[target] = text
         elif kind == "COLUMN" and "." in target:
             tbl, col = target.split(".", 1)
             column_comments.setdefault(tbl, {})[col] = text
 
-    return table_comments, column_comments
+    return table_comments, column_comments, domains
+
+
+def table_domain(table: str) -> str:
+    """Business domain of a table (from its comment), "" when the comment names none."""
+    _maybe_reload_comments()
+    return _table_domains.get((table or "").upper(), "")
+
+
+def table_domains() -> dict[str, str]:
+    _maybe_reload_comments()
+    return dict(_table_domains)
 
 
 _MAX_PRIMARY = 6    # cap on comment-matched primary tables — raised from 4→6 so that
@@ -414,7 +443,7 @@ def _fk_neighbours(primary: set[str], all_known: set[str]) -> set[str]:
     return neigh
 
 
-def _select_tables_tiered(question: str) -> tuple[list[str], set[str]]:
+def _select_tables_tiered(question: str, allowed_tables: "set | None" = None) -> tuple[list[str], set[str]]:
     """COMMENT-DRIVEN table selection — no hardcoded groups or keyword lists.
 
       primary    = tables ranked by comment-overlap with the question (highest first),
@@ -429,6 +458,8 @@ def _select_tables_tiered(question: str) -> tuple[list[str], set[str]]:
     """
     all_known = set(_table_comments.keys())
     blocked = _get_blocked_tables()
+    if allowed_tables is not None:               # tables the caller may not read are never offered to the model
+        blocked = blocked | (all_known - set(allowed_tables))
     idx = _get_table_tokens()
 
     q_tokens = _comment_tokens(question)
@@ -516,6 +547,21 @@ def _select_tables_tiered(question: str) -> tuple[list[str], set[str]]:
         referenced = all_known - primary_set - blocked
 
     return ranked, referenced
+
+
+def table_scores(question: str) -> dict[str, int]:
+    """How strongly the question points at each table (word overlap with the table's comment; a table named
+    in the question outranks everything). Used to decide, before the model is called, whether a question is
+    about data a user may not read."""
+    _maybe_reload_comments()
+    blocked = _get_blocked_tables()
+    q_tokens = _comment_tokens(question)
+    q_upper = question.upper()
+    scores = {t: len(q_tokens & toks) for t, toks in _get_table_tokens().items() if t not in blocked}
+    for t in scores:
+        if re.search(r'(?<![A-Z_0-9])' + re.escape(t) + r'(?![A-Z_0-9])', q_upper):
+            scores[t] = 100
+    return {t: n for t, n in scores.items() if n > 0}
 
 
 def _select_tables(question: str) -> set[str]:

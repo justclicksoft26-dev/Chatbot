@@ -243,7 +243,7 @@ async def test_unrestricted_roles_get_no_branch_filter(world):
 async def test_role_without_the_domain_is_refused(world):
     rbac.assign_role("wh", "warehouse", company_code="1")
     r = await ask("ميزان المراجعة", user="wh")
-    assert r.method == "error" and "المجال" in r.answer and world.db.calls == []
+    assert r.method == "permission_denied" and "المجال" in r.answer and "خارج صلاحياتك" in r.answer and world.db.calls == []
 
 
 async def test_role_with_the_domain_is_served(world):
@@ -274,7 +274,7 @@ async def test_anonymous_dev_user_is_not_restricted_by_role(world):
 async def test_rbac_strict_restricts_anonymous_users_too(world, monkeypatch):
     monkeypatch.setenv("RBAC_STRICT", "1")
     r = await ask("ميزان المراجعة", user="web_user")               # unknown user = viewer: no accounting
-    assert r.method == "error" and "المجال" in r.answer
+    assert r.method == "permission_denied" and "المجال" in r.answer
 
 
 # ── CRM profile: nothing is injected ───────────────────────────────────
@@ -315,7 +315,7 @@ async def test_executive_report_needs_access_to_its_domain(world, monkeypatch):
     monkeypatch.setattr(pipeline, "generate_executive_report", fake)
     monkeypatch.setattr(pipeline, "detect_report_intent", lambda q: "financial_summary")
     r = await ask("تقرير تنفيذي", user="wh")
-    assert r.method == "error" and "المجال" in r.answer and called == []
+    assert r.method == "permission_denied" and "المجال" in r.answer and called == []
     assert er.report_allowed("wh", "inventory_status") and not er.report_allowed("wh", "financial_summary")
     assert er.report_allowed("nobody", "financial_summary")          # unknown users are not enforced (api_key mode)
 

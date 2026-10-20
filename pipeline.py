@@ -54,6 +54,7 @@ from erp_actions.store import get_user_pending, save_action, get_last_undoable_a
 from erp_actions.workflows import is_workflow_query, get_pending_approvals, get_request_status, get_approval_summary
 from erp_actions.apex_nav import detect_navigation_intent, find_pages
 from reporting.export_engine import detect_export_intent, ExportRequest, generate_export, ExportFormat
+from security import permissions
 from reporting.executive_reports import detect_report_intent, generate_executive_report, format_report_for_chat, report_allowed
 
 
@@ -797,7 +798,8 @@ async def process_question(
     # ── Operator: Executive Report Detection ──
     report_type = detect_report_intent(question)
     if report_type and not report_allowed(user_id, report_type):
-        return PipelineResult(answer="ليس لديك صلاحية على هذا المجال.", method="error")
+        return PipelineResult(answer=permissions.message(user_id, [permissions.domain_of_report(report_type)]),
+                              method="permission_denied")
     if report_type:
         log.info(f"[PIPELINE] Executive report: {report_type}")
         result = await _handle_executive_report(
@@ -890,8 +892,8 @@ async def process_question(
             and not rbac.check_domain_access(user_id, intent.domain)):
         log.info(f"[PIPELINE] domain {intent.domain!r} denied for user={user_id}")
         return PipelineResult(
-            answer="ليس لديك صلاحية على هذا المجال.",
-            method="error",
+            answer=permissions.message(user_id, [intent.domain], any('؀' <= c <= 'ۿ' for c in question)),
+            method="permission_denied",
             intent=intent,
         )
 
@@ -1362,10 +1364,16 @@ async def _execute_llm_controlled(
     """Controlled LLM SQL generation with safety checks."""
     try:
         # Schema context with caching
-        s_key = make_schema_key(question)
+        is_arabic_q = any('؀' <= c <= 'ۿ' for c in question)
+        refused = permissions.screen_question(user_id, question)
+        if refused:
+            log.info(f"[PIPELINE] user={user_id} asked about {refused}, outside their permissions")
+            return PipelineResult(answer=permissions.message(user_id, refused, is_arabic_q), sql="",
+                                  method="permission_denied")
+        s_key = make_schema_key(f"{question}|{permissions.fingerprint(user_id)}")
         schema_ctx = schema_cache.get(s_key)
         if schema_ctx is None:
-            schema_ctx = get_relevant_schema(question)
+            schema_ctx = get_relevant_schema(question, permissions.allowed_tables(user_id))
             schema_cache.set(s_key, schema_ctx)
         else:
             log.info("[PIPELINE] Schema context cache HIT")
@@ -1420,6 +1428,10 @@ async def _execute_llm_controlled(
         if not safety.is_safe:
             log.info(f"[PIPELINE] LLM SQL blocked: {safety.blocked_reason}")
             log_query(user_id, question, sql_raw, safety, success=False)
+            if permissions.is_permission_block(safety.blocked_reason):
+                return PipelineResult(
+                    answer=permissions.message(user_id, permissions.denied_from_reason(safety.blocked_reason), is_arabic_q),
+                    sql="", method="permission_denied")
             return PipelineResult(
                 answer="عذراً، لا يمكن تنفيذ هذا الاستعلام لأسباب أمنية.",
                 sql=sql_raw,
@@ -1455,6 +1467,10 @@ async def _execute_llm_controlled(
                 extra_context=extra_context,  # entity hint persists to auto-fix (e.g. LIKE constraint)
             )
             safety, params = _prep(sql_raw, question, user_id, company_code, fiscal_year)
+            if permissions.is_permission_block(safety.blocked_reason):
+                return PipelineResult(
+                    answer=permissions.message(user_id, permissions.denied_from_reason(safety.blocked_reason), is_arabic_q),
+                    sql="", method="permission_denied")
             if safety.is_safe:
                 sql = safety.sql
                 data, err = await _try_execute(sql, params)
@@ -2011,7 +2027,7 @@ async def _handle_dashboard(question: str, history: list = None, user_id: str = 
     dash_domain = getattr(DASHBOARDS.get(dash_id), "domain", "")
     if (dash_domain in rbac.KNOWN_DOMAINS and rbac.is_enforced(user_id)
             and not rbac.check_domain_access(user_id, dash_domain)):
-        return PipelineResult(answer="ليس لديك صلاحية على هذا المجال.", method="error")
+        return PipelineResult(answer=permissions.message(user_id, [dash_domain]), method="permission_denied")
 
     # Cache per company, year and permission set: a dashboard is private to its scope
     scope_key = f"{company_code}:{fiscal_year}:{_permission_fingerprint(rbac.get_user_permissions(user_id))}"
