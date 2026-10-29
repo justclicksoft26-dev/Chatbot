@@ -374,3 +374,39 @@ async def test_a_failed_query_asks_the_user_to_be_specific_instead_of_calling_th
     world.db.fail_with = "ORA-00942: table or view does not exist"
     r = await ask("طيب هو الرصيد عليه كم", "boss")
     assert r.method == "no_answer" and "وضّح" in r.answer and "خارج نطاق" not in r.answer
+
+
+# ── a follow-up question and the retry after a failed query ────────────
+def test_a_short_follow_up_is_read_together_with_the_previous_question():
+    history = [{"role": "user", "content": "هل مخزن الحائط موجود؟"}, {"role": "assistant", "content": "نعم"}]
+    assert pipeline._follow_up_text("طيب هو الرصيد عليه كم", history) == "هل مخزن الحائط موجود؟ طيب هو الرصيد عليه كم"
+
+
+def test_a_long_or_first_question_stands_alone():
+    history = [{"role": "user", "content": "هل مخزن الحائط موجود؟"}]
+    long_q = "اعرض لي كل فواتير المبيعات للعميل أحمد في الشهر الماضي مع المجاميع والمرتجعات"
+    assert pipeline._follow_up_text(long_q, history) == long_q
+    assert pipeline._follow_up_text("كم عدد العملاء؟", []) == "كم عدد العملاء؟"
+
+
+async def test_the_follow_up_gets_the_tables_of_what_it_is_about(world):
+    assign("boss", "admin")
+    history = [{"role": "user", "content": "هل مخزن الحائط موجود؟"}]
+    await pipeline.process_question("طيب هو الرصيد عليه كم", user_id="boss", company_code="1", fiscal_year="2024", history=history)
+    assert "STORE" in world.llm.calls[0]["schema_context"]
+
+
+async def test_the_retry_sees_the_schema_and_the_columns_the_table_really_has(world):
+    assign("boss", "admin")
+    world.llm.sql = "SELECT c.CUSTNAME, c.CURRENT_BAL FROM CUST c"          # columns the table does not have
+    world.db.fail_with = 'ORA-00904: "C"."CUSTNAME": invalid identifier'
+    await ask("كم رصيد العميل أحمد؟", "boss")
+    retry = world.llm.calls[1]
+    assert retry["schema_context"].strip() != ""
+    assert "CUST_NAME" in retry["question"] and "OPEN_BALANCE" in retry["question"]
+
+
+async def test_the_retry_hint_never_lists_columns_of_tables_the_user_may_not_read(world):
+    assign("wh", "warehouse")
+    hint = pipeline._columns_hint("SELECT * FROM CUST c, ITEMS i", "wh")
+    assert "ITEMS:" in hint and "CUST:" not in hint
