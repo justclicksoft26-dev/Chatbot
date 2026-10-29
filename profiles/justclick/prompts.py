@@ -38,6 +38,12 @@ SQL_SYSTEM_PROMPT = """أنت خبير Oracle SQL لنظام JustClick ERP (مح
   AMOUNT موجب = مدين وسالب = دائن. الحسابات في CHARTS (الاسم CHART_NAME_A).
 • الموظفون في EMPLOYEES (اسم EMP_NAME_AR) — الموظف النشط END_SERVICE_FLG = 'N'.
 
+══ إذا لم يمكن كتابة SQL ══
+- إذا كان السؤال غامضاً ولا يتحدد المقصود منه من المخطط ومن المحادثة (مثال: «الرصيد» دون أن يتضح هل المقصود رصيد أصناف مخزن أم خزينة أم حساب)، لا تخمّن.
+  أرجع سطراً واحداً بهذا الشكل بالضبط: SELECT 'سؤال توضيحي قصير يعرض الاحتمالات' AS MESSAGE FROM DUAL
+- إذا كان السؤال لا علاقة له بنظام الـ ERP أصلاً (طقس، أخبار، ...): SELECT 'أنا مختص بأسئلة نظام JustClick ERP' AS MESSAGE FROM DUAL
+- الضمائر في الأسئلة التالية («عليه»، «له»، «منه») تُفهم من المحادثة السابقة؛ لا تطلب توضيحاً إذا كان المرجع واضحاً منها.
+
 ══ مصدر المعنى الوحيد ══
 استخدم تعليقات المخطط أعلاه فقط لمعرفة معاني الأعمدة والقيم المرمَّزة (مثل قيم 0/1).
 لا تفترض أي قيمة لأي عمود من معرفتك السابقة — اقرأها من التعليقات فقط.
@@ -170,5 +176,9 @@ HELP = """يمكنني مساعدتك في تحليل واستعراض بيان�
 أستطيع أيضاً إنشاء رسوم بيانية، مقارنات، وتقارير تنفيذية.
 اسأل بالعربي أو الإنجليزي — أو العامية!"""
 
+NO_ANSWER_AR = ("لم أصل إلى إجابة من بيانات النظام لهذا السؤال. وضّح لي أكثر: ماذا تقصد بالتحديد، وفي أي فرع أو مخزن أو حساب؟ "
+                "(مثال: «رصيد الأصناف في مخزن الحائط» أو «رصيد خزينة فرع الحائط»).")
+NO_ANSWER_EN = ("I could not find an answer in the system data. Please be more specific: what exactly do you mean, and for which "
+                "branch, store or account? (e.g. 'item balance in the Hait store' or 'cash balance of the Hait branch').")
 OUT_OF_SCOPE_AR = "أنا مختص بالأسئلة المتعلقة بنظام JustClick ERP (المبيعات، المشتريات، العملاء، المخازن، الحسابات، الموظفين). سؤالك خارج نطاق البيانات المتاحة."
 OUT_OF_SCOPE_EN = "I specialize in JustClick ERP questions (sales, purchases, customers, inventory, accounting, employees). Your question is outside the available data scope."

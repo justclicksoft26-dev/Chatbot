@@ -143,9 +143,12 @@ def test_the_message_names_what_is_missing_and_what_the_user_has():
 class Db:
     def __init__(self):
         self.calls = []
+        self.fail_with = ""
 
     async def __call__(self, sql, params=None, *a, **k):
         self.calls.append(sql)
+        if self.fail_with:
+            raise Exception(self.fail_with)
         return [{"n": 1}]
 
 
@@ -355,3 +358,19 @@ def test_only_an_administrator_key_opens_the_admin_paths(keys_client):
 
 def test_the_login_page_itself_stays_reachable(keys_client):
     assert keys_client.get("/").status_code == 200
+
+
+# ── a question the model cannot turn into a query ──────────────────────
+async def test_the_models_own_clarifying_question_is_shown_not_a_canned_refusal(world):
+    assign("boss", "admin")
+    world.llm.sql = "SELECT 'تقصد رصيد أصناف مخزن الحائط أم رصيد الخزينة؟' AS MESSAGE FROM DUAL"
+    r = await ask("طيب هو الرصيد عليه كم", "boss")
+    assert r.method == "assistant_message" and r.answer == "تقصد رصيد أصناف مخزن الحائط أم رصيد الخزينة؟"
+    assert r.sql == "" and world.db.calls == []
+
+
+async def test_a_failed_query_asks_the_user_to_be_specific_instead_of_calling_the_question_out_of_scope(world):
+    assign("boss", "admin")
+    world.db.fail_with = "ORA-00942: table or view does not exist"
+    r = await ask("طيب هو الرصيد عليه كم", "boss")
+    assert r.method == "no_answer" and "وضّح" in r.answer and "خارج نطاق" not in r.answer

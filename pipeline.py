@@ -75,6 +75,13 @@ def _permission_fingerprint(perms) -> str:
 _DUAL_MESSAGE_RE = re.compile(r"^\s*SELECT\s+(?P<sel>.+?)\s+FROM\s+DUAL\b", re.IGNORECASE | re.DOTALL)
 
 
+def _message_text(sql: str) -> str:
+    """The text a message-only SQL carries: what the model wants to tell the user instead of a query."""
+    m = _DUAL_MESSAGE_RE.match(sql or "")
+    lit = re.search(r"'((?:[^']|'')*)'", m.group("sel")) if m else None
+    return (lit.group(1).replace("''", "'").strip() if lit else "")[:600]
+
+
 def _is_message_only_sql(sql: str) -> bool:
     """SELECT 'some text' FROM DUAL — the model refusing through SQL instead of saying so.
     It reads no table, so it is not an answer from the data; a call such as
@@ -1415,13 +1422,12 @@ async def _execute_llm_controlled(
         )
 
         if _is_message_only_sql(sql_raw):
-            log.info("[PIPELINE] model answered with a literal message (no table read) — out of scope")
+            # The model chose not to query: the question is unclear (it asks what it needs) or not about the ERP
+            # (it says so). Its own words are the answer — a canned "out of scope" would be wrong for an unclear question.
+            log.info("[PIPELINE] model answered with a message instead of a query (no table read)")
             texts = profiles.part("prompts")
-            return PipelineResult(
-                answer=texts.OUT_OF_SCOPE_AR if any('؀' <= c <= 'ۿ' for c in question) else texts.OUT_OF_SCOPE_EN,
-                sql="",
-                method="out_of_scope",
-            )
+            fallback = texts.NO_ANSWER_AR if is_arabic_q else texts.NO_ANSWER_EN
+            return PipelineResult(answer=_message_text(sql_raw) or fallback, sql="", method="assistant_message")
 
         # Safety validation + company / year / branch scoping
         safety, params = _prep(sql_raw, question, user_id, company_code, fiscal_year)
@@ -1483,9 +1489,9 @@ async def _execute_llm_controlled(
                 is_arabic = any('؀' <= c <= 'ۿ' for c in question)
                 texts = profiles.part("prompts")
                 return PipelineResult(
-                    answer=texts.OUT_OF_SCOPE_AR if is_arabic else texts.OUT_OF_SCOPE_EN,
+                    answer=texts.NO_ANSWER_AR if is_arabic else texts.NO_ANSWER_EN,
                     sql="",
-                    method="out_of_scope",
+                    method="no_answer",
                 )
             raise Exception(err)
 
