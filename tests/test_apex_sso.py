@@ -189,3 +189,16 @@ def test_a_token_issued_a_few_seconds_ahead_of_the_chat_clock_is_accepted_but_no
     import jwt
     far = jwt.encode({"sub": "A", "role": "sales", "iat": now + 600, "exp": now + 900}, SECRET, algorithm="HS256")
     assert rbac.verify_token(far) is None
+
+
+# ── a browser calling from another origin ──────────────────────────────
+def test_the_browser_preflight_needs_no_credentials_and_the_real_call_still_does(client):
+    asked = {"Origin": "https://apex.example.com", "Access-Control-Request-Method": "POST",
+             "Access-Control-Request-Headers": "authorization,content-type"}
+    pre = client.options("/api/chat", headers=asked)
+    assert pre.status_code == 200 and "Authorization" in pre.headers["access-control-allow-headers"]
+    assert client.post("/api/chat", json={"question": "hi"}, headers={"Origin": "https://apex.example.com"}).status_code == 401
+
+
+def test_the_health_detail_page_stays_closed_without_credentials(client):
+    assert client.get("/health/detail").status_code == 401
