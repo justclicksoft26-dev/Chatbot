@@ -9,6 +9,7 @@ independent reference query. A report is written to data/uat-reports/sprint-N.md
 """
 import argparse
 import asyncio
+import dataclasses
 import datetime
 import json
 import os
@@ -72,15 +73,24 @@ def run_scenario(sc, args) -> dict:
             if not rows:
                 return {"id": sc.id, "question": sc.question, "status": "SKIP", "problems": ["لا توجد بيانات كافية لتجهيز هذا السيناريو"]}
             values[name] = list(rows[0].values())[0]
+            values[name + "_first"] = str(values[name]).split()[0] if str(values[name]).split() else ""
     question = fill(sc.question, values)
+    user = f"uat-{sc.id}-{int(time.time())}"
+    for earlier in sc.turns:                       # the conversation so far: same user, so the chat keeps the context
+        ask(args.base_url, args.api_key, fill(earlier, values), args.company, args.year, user,
+            admin_key=getattr(args, "admin_key", ""))
+        time.sleep(getattr(args, "delay", 0) or 0)
     started = time.time()
-    resp = ask(args.base_url, args.api_key, question, args.company, args.year, f"uat-{sc.id}-{int(started)}",
+    resp = ask(args.base_url, args.api_key, question, args.company, args.year, user,
                admin_key=getattr(args, "admin_key", ""))
     elapsed = round(time.time() - started, 1)
     if "_http_error" in resp:
         return {"id": sc.id, "question": question, "status": "FAIL", "problems": [f"فشل الطلب (HTTP {resp['_http_error']}): {resp['answer']}"],
                 "seconds": elapsed}
-    problems = check_response(sc, resp)
+    # patterns may name a value fetched in the setup: {customer_first} = the first word of the customer's name
+    judged = dataclasses.replace(sc, sql_has=[re.sub(r"\\\{(\w+)\\\}", lambda m: re.escape(str(values.get(m.group(1), m.group(0)))), p)
+                                             for p in sc.sql_has])
+    problems = check_response(judged, resp)
     sql = resp.get("sql_generated") or ""
     if args.oracle and sc.reference_sql and sql and not sc.expect_no_sql:
         try:
@@ -141,7 +151,7 @@ def write_report(sprint, results, args) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--sprint", default="1", help="1 | 2 | 3 | all")
+    parser.add_argument("--sprint", default="1", help="1 | 2 | 3 | 8 | all")
     parser.add_argument("--base-url", default=os.getenv("UAT_BASE_URL", "http://localhost:8000"))
     parser.add_argument("--api-key", default=os.getenv("API_KEY", ""))
     parser.add_argument("--admin-key", default=os.getenv("ADMIN_API_KEY", ""),

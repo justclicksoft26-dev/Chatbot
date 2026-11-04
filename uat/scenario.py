@@ -16,6 +16,10 @@ class Scenario:
     setup: dict = field(default_factory=dict)         # name -> SQL returning one value, available as {name} in the question
     min_rows: int | None = None
     expect_no_sql: bool = False                       # an out-of-scope question must be declined without any SQL
+    turns: list = field(default_factory=list)         # questions asked first, by the same user: the question is a follow-up
+    accept_clarification: bool = False                # a short clarifying question instead of an answer is acceptable
+    answer_has: list = field(default_factory=list)    # regexes the answer text must match
+    answer_not: list = field(default_factory=list)    # regexes the answer text must NOT match
     why: str = ""                                     # what this proves, in plain Arabic
 
 
@@ -32,6 +36,18 @@ def check_response(sc: Scenario, resp: dict) -> list[str]:
     """Problems found in one chat response (empty list = acceptable). Reference comparison is separate."""
     problems = []
     sql = resp.get("sql_generated") or ""
+    answer = resp.get("answer") or ""
+    for pattern in sc.answer_not:
+        if re.search(pattern, answer, re.S):
+            problems.append(f"الإجابة تحتوي على ما يجب ألا يظهر: {pattern}")
+    for pattern in sc.answer_has:
+        if not re.search(pattern, answer, re.S):
+            problems.append(f"الإجابة لا تحتوي على: {pattern}")
+    if sc.accept_clarification and resp.get("method") == "assistant_message":
+        # the model asked what it needs instead of guessing: fine when it is a real question, with no query behind it
+        if "؟" not in answer and "?" not in answer:
+            problems.append("رد النموذج ليس سؤالاً توضيحياً")
+        return problems
     if sc.expect_no_sql:
         if sql.strip():
             problems.append("سؤال خارج النطاق لكن وُلِّد SQL")

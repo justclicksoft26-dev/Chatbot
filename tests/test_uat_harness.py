@@ -186,3 +186,54 @@ def test_the_default_report_folder_is_the_persistent_data_volume():
     import inspect
     source = inspect.getsource(run_uat.main)
     assert '"data", "uat-reports"' in source and "UAT_REPORT_DIR" in source
+
+
+# ── conversations, clarifying questions and answer text (sprint 8) ────
+def test_a_clarifying_question_is_accepted_only_where_the_scenario_allows_it():
+    clarify = resp(method="assistant_message", sql_generated="", row_count=0, answer="تقصد رصيد أصناف أم الخزينة؟")
+    assert check_response(Scenario("t", "q", accept_clarification=True), clarify) == []
+    assert check_response(Scenario("t", "q"), clarify) != []                 # not allowed: the method is not llm_controlled
+
+
+def test_a_clarification_must_really_be_a_question():
+    statement = resp(method="assistant_message", sql_generated="", answer="لا أعرف")
+    assert check_response(Scenario("t", "q", accept_clarification=True), statement) == ["رد النموذج ليس سؤالاً توضيحياً"]
+
+
+def test_answer_text_conditions():
+    sc = Scenario("t", "q", accept_clarification=True, answer_has=[r"هل تقصد"], answer_not=[r"خارج نطاق"])
+    assert check_response(sc, resp(method="assistant_message", sql_generated="", answer="لم أجد. هل تقصد «فرع الحائط»؟")) == []
+    bad = check_response(sc, resp(method="assistant_message", sql_generated="", answer="سؤالك خارج نطاق البيانات؟"))
+    assert any("هل تقصد" in p for p in bad) and any("خارج نطاق" in p for p in bad)
+
+
+def test_the_conversation_is_asked_in_order_by_one_user(server, tmp_path, monkeypatch):
+    asked = []
+    original = run_uat.ask
+
+    def spy(base_url, api_key, question, company, year, user, **kw):
+        asked.append((question, user))
+        return original(base_url, api_key, question, company, year, user, **kw)
+
+    monkeypatch.setattr(run_uat, "ask", spy)
+    sc = Scenario("t", "وكم عدد فواتيره؟", turns=["كم إجمالي مبيعات العميل أحمد؟"], accept_clarification=True)
+    Fake.answers = {"وكم عدد فواتيره؟": {"answer": "تقصد أي عميل؟", "method": "assistant_message", "sql_generated": "", "row_count": 0}}
+    result = run_uat.run_scenario(sc, args_for(server, tmp_path))
+    assert [q for q, _ in asked] == ["كم إجمالي مبيعات العميل أحمد؟", "وكم عدد فواتيره؟"]
+    assert asked[0][1] == asked[1][1] and result["status"] == "PASS"
+
+
+def test_a_pattern_can_name_a_value_fetched_for_the_scenario(server, tmp_path, monkeypatch):
+    async def fake_rows(sql):
+        return [{"cust_name": "Yoseef Mohamed"}]
+
+    monkeypatch.setattr(run_uat, "oracle_rows", fake_rows)
+    sc = Scenario("t", "كم فواتير {customer}؟", setup={"customer": "SELECT 1 FROM DUAL"}, sql_has=[r"\{customer_first\}"])
+    Fake.answers = {"كم فواتير Yoseef Mohamed؟": {"answer": "7", "method": "llm_controlled", "row_count": 1,
+                                                  "sql_generated": "SELECT COUNT(*) FROM CUST WHERE CUST_NAME LIKE '%yoseef%'"}}
+    assert run_uat.run_scenario(sc, args_for(server, tmp_path, oracle=True))["status"] == "PASS"
+
+
+def test_sprint_eight_is_registered_with_conversation_scenarios():
+    sprint = SPRINTS[8]
+    assert any(sc.turns for sc in sprint.scenarios) and any(sc.accept_clarification for sc in sprint.scenarios)
