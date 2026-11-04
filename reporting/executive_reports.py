@@ -375,16 +375,31 @@ async def generate_executive_report(
     )
 
     # Execute all queries and collect raw data
+    from reporting import pins, widget_sql
+
+    async def run(sql: str):
+        safety, params = prepare_sql(sql, user_id=user_id, company_code=company_code,
+                                     fiscal_year=fiscal_year, classify=False)
+        if not safety.is_safe:
+            raise PermissionError(safety.blocked_reason)
+        return await execute_query(safety.sql, params) if params else await execute_query(safety.sql)
+
     raw_data = {}
     for query_name, sql_template in queries.items():
         try:
-            sql = _resolve_flag_placeholders(sql_template)
-            safety, params = prepare_sql(sql, user_id=user_id, company_code=company_code,
-                                         fiscal_year=fiscal_year, classify=False)
-            if not safety.is_safe:
-                raise PermissionError(safety.blocked_reason)
-            data = await execute_query(safety.sql, params) if params else await execute_query(safety.sql)
-            raw_data[query_name] = data
+            fixed = _resolve_flag_placeholders(sql_template)
+            # DASHBOARD_SQL=comments: the query written from the comments (pinned), else the hand-written one
+            sql, source = await widget_sql.resolve_report(report_type, query_name, fixed)
+            try:
+                raw_data[query_name] = await run(sql)
+            except PermissionError:
+                raise
+            except Exception as e:
+                if source not in ("pinned", "generated"):
+                    raise
+                log.warning(f"[EXEC_REPORT] Query '{query_name}' written from the comments failed ({e}); using the fixed one")
+                pins.mark_failed(widget_sql.report_pin_key(report_type, query_name), str(e))
+                raw_data[query_name] = await run(fixed)
         except Exception as e:
             log.warning(f"[EXEC_REPORT] Query '{query_name}' failed: {e}")
             raw_data[query_name] = []

@@ -5,9 +5,9 @@
     python -m tools.pins show sales/sales_today                    # the SQL of one pin
     python -m tools.pins approve sales/sales_today | --all         # accept it: kept until regenerated on purpose
     python -m tools.pins forget sales/sales_today                  # drop it: written again on the next load
-    python -m tools.pins compare [--dashboard sales]               # run each pin and the hand-written query, compare the results
+    python -m tools.pins compare [--dashboard sales] [--what reports]   # run each pin and the hand-written query, compare the results
 
-`compare` is the sprint 6 acceptance run (needs the database and the model): for every widget it says whether the query
+`compare` is the sprint 6 acceptance run (needs the database and the model): for every dashboard widget and executive-report query it says whether the query
 written from the comments gives the same numbers as the hand-written one, or shows both for you to judge. Report:
 data/uat-reports/sprint-6.md. A difference is not always a mistake (the comments may define "sales" as net of returns
 where the old query did not): that is exactly what the report is for.
@@ -57,6 +57,8 @@ def agree(widget_type: str, reference: list[dict], generated: list[dict]) -> tup
         if a is None or b is None:
             return False, f"لا قيمة رقمية: المرجع {a} · المولَّد {b}"
         return (True, "") if _close(a, b, 0.005) else (False, f"المرجع {a:g} · المولَّد {b:g}")
+    if widget_type == "report":
+        return _agree_report(reference, generated)
     if widget_type == "table":
         if not reference or not generated:
             return (not reference and not generated), f"عدد الصفوف: المرجع {len(reference)} · المولَّد {len(generated)}"
@@ -76,6 +78,33 @@ def agree(widget_type: str, reference: list[dict], generated: list[dict]) -> tup
     return False, f"تقاطع التسميات {overlap:.0%} (المرجع {len(ref)} · المولَّد {len(gen)}){shown}"
 
 
+def _agree_report(reference: list[dict], generated: list[dict]) -> tuple[bool, str]:
+    """A report query answers in fixed column names: compare them by name (rows paired by their first column)."""
+    if not reference or not generated:
+        return (not reference and not generated), f"عدد الصفوف: المرجع {len(reference)} · المولَّد {len(generated)}"
+    lower = lambda rows: [{k.lower(): v for k, v in r.items()} for r in rows]       # noqa: E731
+    ref_rows, gen_rows = lower(reference), lower(generated)
+    if len(ref_rows) == 1 and len(gen_rows) == 1:
+        pairs = [(ref_rows[0], gen_rows[0])]
+    else:
+        first = lambda r: str(next(iter(r.values()), "")).strip()                    # noqa: E731
+        by_key = {first(r): r for r in gen_rows}
+        pairs = [(r, by_key.get(first(r))) for r in ref_rows]
+        hit = sum(1 for _, g in pairs if g is not None) / len(pairs)
+        if hit < 0.6:
+            return False, f"تطابق {hit:.0%} من صفوف المرجع ({len(ref_rows)}) و{len(gen_rows)} صفاً مولَّداً"
+        pairs = [(r, g) for r, g in pairs if g is not None]
+    for ref_row, gen_row in pairs:
+        for column, ref_value in ref_row.items():
+            if column not in gen_row:
+                return False, f"العمود {column.upper()} غير موجود في المولَّد (الأعمدة: {', '.join(c.upper() for c in gen_row)})"
+            a, b = _num(ref_value), _num(gen_row[column])
+            same = _close(a, b, 0.005) if a is not None and b is not None else str(ref_value).strip() == str(gen_row[column]).strip()
+            if not same:
+                return False, f"{column.upper()}: المرجع {ref_value} · المولَّد {gen_row[column]}"
+    return True, ""
+
+
 def render_report(rows: list[dict], threshold: float = 0.7) -> tuple[str, bool]:
     """Markdown of a compare run and whether it passes: no failures, and at least `threshold` of the widgets agree."""
     total = len(rows) or 1
@@ -83,7 +112,7 @@ def render_report(rows: list[dict], threshold: float = 0.7) -> tuple[str, bool]:
     failed = [r for r in rows if r["result"] == "failed"]
     accepted = not failed and len(agreed) / total >= threshold
     icon = {"agree": "✅ يطابق", "differ": "⚠️ يختلف (للمراجعة)", "failed": "❌ فشل"}
-    lines = ["# تقرير قبول — السبرنت 6: اللوحات من التعليقات", "",
+    lines = ["# تقرير قبول — السبرنت 6: اللوحات والتقارير من التعليقات", "",
              "- الهدف: استعلام كل ودجت يُكتب من تعليقات الجداول (ويُثبَّت)، لا من SQL مكتوب بالكود، وبنفس الأرقام.",
              f"- التاريخ: {datetime.datetime.now():%Y-%m-%d %H:%M}",
              f"- النتيجة: **{len(agreed)}/{len(rows)} يطابق** · {len(rows) - len(agreed) - len(failed)} يختلف للمراجعة · "
@@ -106,6 +135,31 @@ def _widgets(dashboard: str):
                 yield key, widget
 
 
+def _reports():
+    """(key, kind, fixed query, question, contract) of every distinct executive-report query."""
+    from reporting import report_questions as rq
+    from reporting.executive_reports import _REPORT_QUERIES, _resolve_flag_placeholders
+    seen = set()
+    for report_type, queries in _REPORT_QUERIES.items():
+        for name, sql in queries.items():
+            key = rq.pin_key(report_type, name)
+            if key in seen or not rq.question_for(report_type, name):
+                continue
+            seen.add(key)
+            fixed = _resolve_flag_placeholders(sql)
+            yield key, "report", fixed, rq.question_for(report_type, name), rq.contract_for(fixed)
+
+
+def _items(dashboard: str, what: str):
+    """Everything to write or compare: (key, kind, fixed sql, question, contract)."""
+    from reporting.widget_questions import contract_for, question_for
+    if what in ("dashboards", "all"):
+        for key, widget in _widgets(dashboard):
+            yield key, widget.type, widget.sql, question_for(key), contract_for(widget.type)
+    if what in ("reports", "all") and not dashboard:
+        yield from _reports()
+
+
 async def _init():
     from dotenv import load_dotenv
     load_dotenv()
@@ -115,16 +169,15 @@ async def _init():
 
 async def cmd_generate(args) -> int:
     from reporting import pins, widget_sql
-    from reporting.widget_questions import question_for
     await _init()
     failures = 0
-    for key, widget in _widgets(args.dashboard):
+    for key, kind, fixed, question, contract in _items(args.dashboard, args.what):
         if not args.force and pins.get(key):
             print(f"  ok       {key}  (already pinned)")
             continue
-        sql, why = await widget_sql.generate(key, widget.type, question_for(key))
+        sql, why = await widget_sql.generate_with(question, contract)
         if sql:
-            pins.put(key, sql, question_for(key))
+            pins.put(key, sql, question)
             print(f"  written  {key}")
         else:
             failures += 1
@@ -167,7 +220,6 @@ async def cmd_compare(args) -> int:
     from infra.db import execute_read_query
     from infra.settings import default_company, default_fiscal_year
     from reporting import pins, widget_sql
-    from reporting.widget_questions import question_for
     from security.scope import prepare_sql
     await _init()
 
@@ -179,20 +231,20 @@ async def cmd_compare(args) -> int:
         return [r for r in rows if not r.get("__truncated__")]
 
     results = []
-    for key, widget in _widgets(args.dashboard):
-        row = {"key": key, "type": widget.type, "result": "failed", "detail": ""}
+    for key, kind, fixed, question, contract in _items(args.dashboard, args.what):
+        row = {"key": key, "type": kind, "result": "failed", "detail": ""}
         try:
             pin = pins.get(key)
             if not pin:
-                sql, why = await widget_sql.generate(key, widget.type, question_for(key))
+                sql, why = await widget_sql.generate_with(question, contract)
                 if not sql:
                     row["detail"] = f"لم يُكتب الاستعلام: {why[:140]}"
                     results.append(row)
                     print(f"  FAIL     {key}  {row['detail']}")
                     continue
-                pin = pins.put(key, sql, question_for(key))
-            reference, generated = await run(widget.sql), await run(pin.sql)
-            same, why = agree(widget.type, reference, generated)
+                pin = pins.put(key, sql, question)
+            reference, generated = await run(fixed), await run(pin.sql)
+            same, why = agree(kind, reference, generated)
             row["result"], row["detail"] = ("agree", "") if same else ("differ", why)
         except Exception as exc:                                              # noqa: BLE001
             row["detail"] = f"{type(exc).__name__}: {str(exc)[:160]}"
@@ -219,6 +271,8 @@ def main() -> int:
     for name in ("generate", "compare"):
         p = sub.add_parser(name)
         p.add_argument("--dashboard", default="")
+        p.add_argument("--what", choices=("dashboards", "reports", "all"), default="all",
+                       help="the dashboard widgets, the executive-report queries, or both (default)")
         if name == "generate":
             p.add_argument("--force", action="store_true")
     sub.add_parser("list")
