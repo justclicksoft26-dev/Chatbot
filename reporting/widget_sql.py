@@ -24,13 +24,18 @@ def mode() -> str:
 
 async def generate(key: str, widget_type: str, question: str) -> tuple[str, str]:
     """Write the query for one widget from the comments: (sql, "") or ("", why it could not be written)."""
+    return await generate_with(question, contract_for(widget_type))
+
+
+async def generate_with(question: str, contract: str) -> tuple[str, str]:
+    """Write a query from the comments for a question and the shape its reader needs: (sql, "") or ("", why not)."""
     from llm.llm_client import generate_sql_async
     from nlu.name_match import rewrite_name_likes
     from nlu.schema_loader import get_relevant_schema
     from pipeline import _is_message_only_sql, _message_text
     from security.sql_safety import validate_sql
 
-    ask = f"{question}\n\n{contract_for(widget_type)}"
+    ask = f"{question}\n\n{contract}"
     raw = await generate_sql_async(schema_context=get_relevant_schema(question), question=ask, company_code="", fiscal_year="")
     sql = rewrite_name_likes(raw or "")
     if _is_message_only_sql(sql):
@@ -44,9 +49,25 @@ async def generate(key: str, widget_type: str, question: str) -> tuple[str, str]
 async def resolve(dashboard_id: str, widget) -> tuple[str, str]:
     """(sql, source) for a widget; source is fixed | pinned | generated | fixed-fallback."""
     key = f"{dashboard_id}/{widget.id}"
-    question = question_for(key)
+    return await _resolve(key, question_for(key), widget.sql.strip(), lambda: generate(key, widget.type, question_for(key)))
+
+
+def report_pin_key(report_type: str, name: str) -> str:
+    from reporting import report_questions as rq
+    return rq.pin_key(report_type, name)
+
+
+async def resolve_report(report_type: str, name: str, fixed_sql: str) -> tuple[str, str]:
+    """(sql, source) for one query of an executive report; the columns it must answer in come from the hand-written one."""
+    from reporting import report_questions as rq
+    question = rq.question_for(report_type, name)
+    return await _resolve(rq.pin_key(report_type, name), question, fixed_sql.strip(),
+                          lambda: generate_with(question, rq.contract_for(fixed_sql)))
+
+
+async def _resolve(key: str, question: str, fixed_sql: str, write) -> tuple[str, str]:
     if mode() != "comments" or not question:
-        return widget.sql.strip(), "fixed"
+        return fixed_sql, "fixed"
     pin = pins.get(key)
     if pin:
         return pin.sql, "pinned"
@@ -56,7 +77,7 @@ async def resolve(dashboard_id: str, widget) -> tuple[str, str]:
         if pin:
             return pin.sql, "pinned"
         try:
-            sql, why = await generate(key, widget.type, question)
+            sql, why = await write()
         except Exception as exc:                                # noqa: BLE001 — no model, no quota, no network
             sql, why = "", f"{type(exc).__name__}: {exc}"
         if sql:
@@ -64,4 +85,4 @@ async def resolve(dashboard_id: str, widget) -> tuple[str, str]:
             log.info("[DASHBOARD] %s written from the comments and pinned", key)
             return sql, "generated"
         log.warning("[DASHBOARD] %s could not be written from the comments (%s); using the fixed query", key, why[:200])
-        return widget.sql.strip(), "fixed-fallback"
+        return fixed_sql, "fixed-fallback"
