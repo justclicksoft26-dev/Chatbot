@@ -30,7 +30,7 @@ def normalize_ar(text: str) -> str:
 # column (optionally alias-qualified, optionally wrapped in UPPER/TRIM) LIKE 'literal' — a plain literal only
 _LIKE = re.compile(
     r"(?P<col>\b(?:UPPER|LOWER|TRIM)\s*\(\s*[A-Za-z_][\w$#]*(?:\.[A-Za-z_][\w$#]*)?\s*\)|\b[A-Za-z_][\w$#]*(?:\.[A-Za-z_][\w$#]*)?)"
-    r"\s+LIKE\s+'(?P<lit>(?:[^']|'')*)'(?!\s*ESCAPE)", re.IGNORECASE)
+    r"\s+(?P<neg>NOT\s+)?LIKE\s+'(?P<lit>(?:[^']|'')*)'(?!\s*ESCAPE)", re.IGNORECASE)
 
 
 def rewrite_name_likes(sql: str) -> str:
@@ -41,7 +41,8 @@ def rewrite_name_likes(sql: str) -> str:
             return m.group(0)
         col = re.sub(r"^\s*(?:UPPER|LOWER|TRIM)\s*\(\s*|\s*\)\s*$", "", m.group("col"), flags=re.IGNORECASE)
         wrapped = f"TRANSLATE({col}, '{SQL_FROM}', '{SQL_TO}')"
-        return f"{wrapped} LIKE '{normalize_ar(literal).replace(chr(39), chr(39) * 2)}'"
+        neg = "NOT " if m.group("neg") else ""
+        return f"{wrapped} {neg}LIKE '{normalize_ar(literal).replace(chr(39), chr(39) * 2)}'"
     return _LIKE.sub(swap, sql)
 
 

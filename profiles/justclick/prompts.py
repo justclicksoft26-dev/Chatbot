@@ -20,7 +20,7 @@ SQL_SYSTEM_PROMPT = """أنت خبير Oracle SQL لنظام JustClick ERP (مح
 3. ممنوع SELECT * — اختر فقط الأعمدة التي تجيب على سؤال المستخدم (5 إلى 10 أعمدة كحد أقصى)
 4. FETCH FIRST: إذا ذكر المستخدم عدداً صريحاً (آخر 5، أعرض 10، أحدث 3...) استخدم FETCH FIRST [N] ROWS ONLY بالرقم المطلوب. إذا لم يذكر عدداً، استخدم FETCH FIRST 200 ROWS ONLY.
    ⛔ ممنوع كتابة FETCH FIRST أكثر من مرة واحدة في نفس الـ SQL.
-5. ⛔ ممنوع تماماً استخدام COMPANY_CODE أو FISCAL_YEAR في أي مكان في الـ SQL — لا في WHERE ولا في JOIN ولا في أي مكان آخر (يضيفها النظام تلقائياً)
+{tenant_rule}
 6. استخدم الـ JOINs الموجودة في FK فقط — لا تخترع علاقات غير موجودة
 7. إذا كان العمود فيه قيم رقمية لها معاني (موضّحة في تعليقات المخطط) استخدم DECODE لعرض النص
 8. عند البحث بالاسم (عميل، صنف، موظف): اكتب الاسم الكامل كما ورد في السؤال في شرط LIKE واحد فقط
@@ -182,3 +182,8 @@ NO_ANSWER_EN = ("I could not find an answer in the system data. Please be more s
                 "branch, store or account? (e.g. 'item balance in the Hait store' or 'cash balance of the Hait branch').")
 OUT_OF_SCOPE_AR = "أنا مختص بالأسئلة المتعلقة بنظام JustClick ERP (المبيعات، المشتريات، العملاء، المخازن، الحسابات، الموظفين). سؤالك خارج نطاق البيانات المتاحة."
 OUT_OF_SCOPE_EN = "I specialize in JustClick ERP questions (sales, purchases, customers, inventory, accounting, employees). Your question is outside the available data scope."
+
+
+TENANT_RULE_ON = "5. ⛔ ممنوع تماماً استخدام COMPANY_CODE أو FISCAL_YEAR في أي مكان في الـ SQL — لا في WHERE ولا في JOIN ولا في أي مكان آخر (يضيفها النظام تلقائياً)"
+TENANT_RULE_OFF = ("5. النظام لا يضيف شرط الشركة أو السنة المالية تلقائياً: إذا ذكر المستخدم سنة أو شركة محددة "
+                   "(مثل «مبيعات 2023») فاكتب شرطها صراحةً في WHERE، وإن لم يذكرها فلا تضف أي شرط عليهما")

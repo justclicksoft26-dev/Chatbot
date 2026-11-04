@@ -419,7 +419,11 @@ def generate_sql(schema_context: str, question: str, company_code: str,
                  fiscal_year: str, history: list = None,
                  extra_context: str = "") -> str:
 
-    system_prompt = profiles.part("prompts").SQL_SYSTEM_PROMPT.replace("{schema_context}", schema_context)
+    from infra.settings import tenant_scope_enabled
+    _prompts = profiles.part("prompts")
+    _rule = getattr(_prompts, "TENANT_RULE_ON" if tenant_scope_enabled() else "TENANT_RULE_OFF", "")
+    system_prompt = (_prompts.SQL_SYSTEM_PROMPT.replace("{tenant_rule}", _rule)
+                     .replace("{schema_context}", schema_context))
 
     # SQL examples — loaded from justclick_comments.sql (@SQL_EXAMPLE_START blocks),
     # NOT hardcoded here.  Editing the file = change takes effect on next request.
@@ -465,13 +469,9 @@ def generate_sql(schema_context: str, question: str, company_code: str,
     # multiple JOINs can reach 600-800 tokens; 2000 gives a safe margin.
     result = _call_llm(messages, temperature=0, max_tokens=2000)
 
-    return _strip_tenant_filters(result)
-
-
-def _strip_tenant_filters(sql: str) -> str:
-    """Remove COMPANY_CODE / FISCAL_YEAR conditions the LLM may generate."""
-    from security.query_policy import strip_tenant_conditions
-    return strip_tenant_conditions(sql)
+    # Company/year predicates are stripped by security.scope.prepare_sql only when tenant scoping is on;
+    # with it off a year the user asked for ("مبيعات 2023") must stay in the query.
+    return result
 
 
 # ══════════════════════════════════════════════════════════════════════
