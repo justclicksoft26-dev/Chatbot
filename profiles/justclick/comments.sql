@@ -673,10 +673,6 @@ COMMENT ON COLUMN PAYED.INV_CAT IS
 COMMENT ON COLUMN PAYED.STORE_CODE IS
   'كود المخزن - FK → STORE.STORE_CODE | الاسم في STORE.STORE_NAME';
 
--- [dump]
-COMMENT ON COLUMN PAYED.COMPANY_CODE IS
-  'كود الشركة - Tenant identifier (SaaS isolation)';
-
 -- ==================== ITEM_CARD ====================
 -- [apex]
 COMMENT ON TABLE ITEM_CARD IS
@@ -962,10 +958,6 @@ COMMENT ON COLUMN DEALER_DATA.PERCENT IS
 COMMENT ON COLUMN DEALER_DATA.CHART_CODE IS
   'كود الحساب المحاسبي - FK → CHARTS_ELEMENTS.CHART_CODE';
 
--- [dump]
-COMMENT ON COLUMN DEALER_DATA.COMPANY_CODE IS
-  'كود الشركة - Tenant identifier (SaaS isolation)';
-
 -- ==================== PRICE_LIST ====================
 -- [dump]
 COMMENT ON TABLE PRICE_LIST IS
@@ -1027,10 +1019,6 @@ COMMENT ON COLUMN INV_CATEGORIES.CHART_CODE IS
 -- [dump]
 COMMENT ON COLUMN INV_CATEGORIES.COST_CODE IS
   'مركز التكلفة - FK → COST_CENTERS.COST_CODE | الاسم في COST_CENTERS.COST_NAME';
-
--- [dump]
-COMMENT ON COLUMN INV_CATEGORIES.COMPANY_CODE IS
-  'كود الشركة - Tenant identifier (SaaS isolation)';
 
 -- ==================== STORE_TRANS_TYPE ====================
 -- [dump]
@@ -1194,14 +1182,6 @@ COMMENT ON COLUMN TRANSACTION.TRANSACTION_SER IS
 COMMENT ON COLUMN TRANSACTION.COST_CODE IS
   'مركز التكلفة على مستوى السطر - FK → COST_CENTERS.COST_CODE | الاسم في COST_CENTERS.COST_NAME';
 
--- [dump]
-COMMENT ON COLUMN TRANSACTION.UNIT_ID2 IS
-  'كود وحدة القياس الثانوية - FK → UNITS.UNIT_ID | الاسم في UNITS.UNIT_NAME';
-
--- [dump]
-COMMENT ON COLUMN TRANSACTION.ITEMID2 IS
-  'كود الصنف البديل - FK → ITEMS.ITEMID | الاسم في ITEMS.ITEMNAME';
-
 -- ==================== TRANSACTION_TOT ====================
 -- [dump]
 COMMENT ON TABLE TRANSACTION_TOT IS
@@ -1330,10 +1310,6 @@ COMMENT ON COLUMN MAIN_INV_PAYED.SDAD IS
 COMMENT ON COLUMN MAIN_INV_PAYED.CHILD_CUSTID IS
   'كود العميل الفرعي - يستخدم عند السداد باسم عميل فرعي
      FK → CUST.CUSTID';
-
--- [dump]
-COMMENT ON COLUMN MAIN_INV_PAYED.COMPANY_CODE IS
-  'كود الشركة - Tenant identifier (SaaS isolation)';
 
 -- ==================== BRANCHES ====================
 -- [apex]

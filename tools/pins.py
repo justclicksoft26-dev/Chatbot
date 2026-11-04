@@ -165,6 +165,10 @@ async def _init():
     load_dotenv()
     from nlu import schema_loader
     await schema_loader.init_schema_context()
+    # The comparison runs as an administrator: with AUTH_MODE=keys an unknown identity is a restricted viewer, and
+    # the check would then measure the permission rules instead of whether the generated query is right.
+    from security import rbac
+    rbac.assign_role("uat", "admin", "1", ["*"])
 
 
 async def cmd_generate(args) -> int:
