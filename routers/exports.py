@@ -7,7 +7,7 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 
 from reporting.export_engine import (
@@ -22,6 +22,8 @@ from security import rbac
 from routers.schemas import ScopeValue
 
 log = logging.getLogger("routers.exports")
+
+from infra.settings import default_company, default_fiscal_year
 
 router = APIRouter(prefix="/exports", tags=["exports"])
 
@@ -62,8 +64,8 @@ MAX_EXPORT_ROWS = 50000
 class ExecutiveReportRequest(BaseModel):
     """Request to generate an executive report."""
     report_type: str = "financial_summary"
-    company_code: ScopeValue = "1"
-    fiscal_year: ScopeValue = "2024"
+    company_code: ScopeValue = Field(default_factory=default_company)
+    fiscal_year: ScopeValue = Field(default_factory=default_fiscal_year)
     user_id: str = "web_user"
     export_format: str = ""  # empty = chat display; pdf|excel|csv|json = file export
 

@@ -6,7 +6,7 @@ import logging
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 
 from erp_actions.models import ActionStatus
@@ -26,7 +26,7 @@ from routers.schemas import ScopeValue
 
 log = logging.getLogger("routers.actions")
 
-from infra.settings import default_fiscal_year
+from infra.settings import default_company, default_fiscal_year
 
 router = APIRouter(prefix="/actions", tags=["actions"])
 
@@ -38,8 +38,8 @@ router = APIRouter(prefix="/actions", tags=["actions"])
 class ActionPlanRequest(BaseModel):
     question: str
     user_id: str = "web_user"
-    company_code: ScopeValue = "1"
-    fiscal_year: ScopeValue = ""          # empty -> DEFAULT_FISCAL_YEAR or the current year (what the chat path uses)
+    company_code: ScopeValue = Field(default_factory=default_company)
+    fiscal_year: ScopeValue = Field(default_factory=default_fiscal_year)
 
 
 class ActionConfirmRequest(BaseModel):
@@ -55,14 +55,14 @@ class ActionRejectRequest(BaseModel):
 
 class WorkflowApprovalRequest(BaseModel):
     user_id: str = ""
-    company_code: ScopeValue = "1"
+    company_code: ScopeValue = Field(default_factory=default_company)
     limit: int = 20
 
 
 class WorkflowStatusRequest(BaseModel):
     request_id: str
     user_id: str = ""
-    company_code: ScopeValue = "1"
+    company_code: ScopeValue = Field(default_factory=default_company)
 
 
 # ══════════════════════════════════════════════════════════════════

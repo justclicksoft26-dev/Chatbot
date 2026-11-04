@@ -7,7 +7,7 @@ import os
 import logging
 import hmac
 from fastapi import APIRouter, HTTPException, Depends, Request
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, Field
 from typing import Optional
 
 from learning.engine import (
@@ -41,6 +41,8 @@ from learning.store import get_backend
 from routers.schemas import ScopeValue
 
 log = logging.getLogger("router.learning")
+
+from infra.settings import default_company, default_fiscal_year
 
 router = APIRouter(prefix="/learning", tags=["learning"])
 
@@ -140,7 +142,7 @@ class TrainFromQueryRequest(BaseModel):
     report_name: str
     description: str
     sql: str
-    company_code: ScopeValue = "1"
+    company_code: ScopeValue = Field(default_factory=default_company)
 
 
 @router.post("/train-from-query")
