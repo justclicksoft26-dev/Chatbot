@@ -18,7 +18,7 @@ import logging
 import traceback
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, Field
 from typing import List, Optional
 
 from pipeline import process_question, PipelineResult
@@ -28,13 +28,15 @@ from routers.schemas import ScopeValue
 
 log = logging.getLogger("stream")
 
+from infra.settings import default_company, default_fiscal_year
+
 router = APIRouter(prefix="/chat", tags=["stream"])
 
 
 class StreamRequest(BaseModel):
     question: str
-    company_code: ScopeValue = "1"
-    fiscal_year: ScopeValue = "2024"
+    company_code: ScopeValue = Field(default_factory=default_company)
+    fiscal_year: ScopeValue = Field(default_factory=default_fiscal_year)
     user_id: str = "web_user"
     history: list = []
 

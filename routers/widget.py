@@ -5,7 +5,7 @@ Accepts: { "user": "...", "question": "..." }
 Returns: { "reply": "...", "method": "...", "row_count": 0 }
 """
 from fastapi import APIRouter, Request
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, Field
 from typing import Optional
 
 from pipeline import process_question
@@ -14,14 +14,16 @@ from routers.schemas import ScopeValue
 
 from llm.llm_client import is_rate_limit_error
 
+from infra.settings import default_company, default_fiscal_year
+
 router = APIRouter(prefix="/api", tags=["widget"])
 
 
 class WidgetRequest(BaseModel):
     question: str
     user: Optional[str] = "anonymous"
-    company_code: ScopeValue = "1"
-    fiscal_year: ScopeValue = "2024"
+    company_code: ScopeValue = Field(default_factory=default_company)
+    fiscal_year: ScopeValue = Field(default_factory=default_fiscal_year)
 
     @field_validator("question")
     @classmethod

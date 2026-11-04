@@ -8,7 +8,7 @@ import logging
 import traceback
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, Field
 from typing import List, Optional
 
 from pipeline import process_question, PipelineResult
@@ -27,6 +27,8 @@ log = logging.getLogger("chat")
 
 from llm.llm_client import is_rate_limit_error
 
+from infra.settings import default_company, default_fiscal_year
+
 router = APIRouter(prefix="/chat", tags=["chat"])
 
 
@@ -37,8 +39,8 @@ class HistoryMessage(BaseModel):
 
 class ChatRequest(BaseModel):
     question: str
-    company_code: ScopeValue = "1"
-    fiscal_year: ScopeValue = "2024"
+    company_code: ScopeValue = Field(default_factory=default_company)
+    fiscal_year: ScopeValue = Field(default_factory=default_fiscal_year)
     branch_id: ScopeValue = "0"
     user_id: str      = "web_user"
     history: List[HistoryMessage] = []
