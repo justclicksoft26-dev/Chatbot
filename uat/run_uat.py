@@ -45,6 +45,21 @@ def ask(base_url: str, api_key: str, question: str, company: str, year: str, use
         return {"_http_error": 0, "answer": str(exc)[:300]}
 
 
+def reset_session(base_url: str, api_key: str, user: str) -> None:
+    """Forget the conversation of this user. With AUTH_MODE=keys the server ignores the user id sent in the body and
+    runs every request of the service key as one identity, so without this the previous scenario's customer, store or
+    follow-up context leaks into the next question (a sales count came back filtered to the last scenario's customer)."""
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["X-API-Key"] = api_key
+    req = urllib.request.Request(base_url.rstrip("/") + "/chat/clear-memory", data=json.dumps({"user_id": user}).encode(),
+                                 headers=headers, method="POST")
+    try:
+        urllib.request.urlopen(req, timeout=30).read()
+    except Exception:                                                        # noqa: BLE001 — a failed reset must not stop the run
+        pass
+
+
 async def oracle_rows(sql: str) -> list[dict]:
     from dotenv import load_dotenv
     load_dotenv()
@@ -76,6 +91,7 @@ def run_scenario(sc, args) -> dict:
             values[name + "_first"] = str(values[name]).split()[0] if str(values[name]).split() else ""
     question = fill(sc.question, values)
     user = f"uat-{sc.id}-{int(time.time())}"
+    reset_session(args.base_url, args.api_key, user)
     for earlier in sc.turns:                       # the conversation so far: same user, so the chat keeps the context
         ask(args.base_url, args.api_key, fill(earlier, values), args.company, args.year, user,
             admin_key=getattr(args, "admin_key", ""))

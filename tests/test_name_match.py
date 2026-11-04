@@ -178,3 +178,11 @@ def test_not_like_keeps_its_negation():
     from nlu.name_match import rewrite_name_likes
     out = rewrite_name_likes("WHERE c.CUST_NAME NOT LIKE '%أحمد%'")
     assert out.startswith("WHERE TRANSLATE(c.CUST_NAME,") and "NOT LIKE '%احمد%'" in out
+
+
+def test_a_short_misspelled_name_still_finds_its_neighbours():
+    import pipeline
+    from nlu.name_match import similar_names, normalize_ar
+    chunks = pipeline._probe_chunks("الحيط")
+    assert any(c in normalize_ar("الحايط") for c in chunks)
+    assert similar_names("الحيط", ["الحايط", "القاهره", "فرعي"]) == ["الحايط"]
