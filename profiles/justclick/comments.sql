@@ -342,6 +342,12 @@ COMMENT ON COLUMN ITEMS.BAR_CODE IS
 COMMENT ON COLUMN ITEMS.STORE_CODE IS
   'المخزن الافتراضي للصنف — FK → STORE.STORE_CODE';
 
+COMMENT ON COLUMN ITEMS.MIN_LIMIT IS
+  'حد الطلب (الحد الأدنى للمخزون): إذا نزل رصيد الصنف الحالي (RASEED) إلى هذا الحد أو أقل وجب إعادة الطلب.
+     NULL أو 0 = لم يُحدَّد حد للصنف (لا يدخل في تنبيهات نقص المخزون).
+     الأصناف تحت حد الطلب : رصيدها RASEED(ITEMID, NULL, NULL, NULL, NULL) أكبر من صفر وأقل من أو يساوي MIN_LIMIT.
+     English: reorder level; stock at or below it needs reordering.';
+
 -- ==================== CHARTS ====================
 -- [dump]
 COMMENT ON TABLE CHARTS IS

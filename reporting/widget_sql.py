@@ -57,6 +57,13 @@ def report_pin_key(report_type: str, name: str) -> str:
     return rq.pin_key(report_type, name)
 
 
+async def resolve_named(key: str, question: str, fixed_sql: str, columns: list[str]) -> tuple[str, str]:
+    """(sql, source) for any other recurring query (the monitors' checks): the same pin, fallback and review as a widget.
+    `columns` are the names the caller reads from the result."""
+    contract = "شكل النتيجة: الأعمدة التالية بهذه الأسماء بالضبط وبهذا الترتيب: " + ", ".join(columns) + "."
+    return await _resolve(key, question, fixed_sql.strip(), lambda: generate_with(question, contract))
+
+
 async def resolve_report(report_type: str, name: str, fixed_sql: str) -> tuple[str, str]:
     """(sql, source) for one query of an executive report; the columns it must answer in come from the hand-written one."""
     from reporting import report_questions as rq

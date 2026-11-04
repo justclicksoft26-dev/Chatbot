@@ -7,6 +7,7 @@ Every check function executes actual ERP queries — no hardcoded demo data.
 """
 import asyncio
 import logging
+import os
 import time
 from typing import Optional
 
@@ -125,28 +126,50 @@ async def check_overdue_receivables() -> list[Alert]:
 # CHECK 3: Low Inventory Items
 # ═══════════════════════════════════════════════════════════════════
 
-async def check_low_inventory() -> list[Alert]:
-    """Detect items at critically low stock (<=5 units)."""
-    sql = (
-        "SELECT COUNT(*) AS LOW_COUNT "
-        "FROM TRANSACTION_TOT t "
-        "JOIN ITEMS i ON i.ITEMID = t.ITEMID "
-        "WHERE t.QTY > 0 AND t.QTY <= 5 "
-        "FETCH FIRST 1 ROWS ONLY"
-    )
-    alerts = []
+# An item's current balance is the RASEED function (see the ITEMS comment) and its reorder level is ITEMS.MIN_LIMIT, the same
+# definitions the stock report uses. Only items that have a level are looked at: it is the list somebody decided to watch, and
+# the balance function is not evaluated for the other tens of thousands of items.
+_LOW_STOCK_SQL = (
+    "SELECT COUNT(*) AS LOW_COUNT FROM ("
+    "SELECT i.MIN_LIMIT, RASEED(i.ITEMID, NULL, NULL, NULL, NULL) AS QTY FROM ITEMS i WHERE NVL(i.MIN_LIMIT, 0) > 0"
+    ") WHERE QTY > 0 AND QTY <= MIN_LIMIT"
+)
+_ZERO_STOCK_SQL = (
+    "SELECT COUNT(*) AS ZERO_COUNT FROM ("
+    "SELECT RASEED(i.ITEMID, NULL, NULL, NULL, NULL) AS QTY FROM ITEMS i WHERE NVL(i.MIN_LIMIT, 0) > 0"
+    ") WHERE QTY = 0"
+)
+_LOW_STOCK_QUESTION = "كم صنفاً له حد طلب مسجّل ورصيده الحالي أكبر من صفر ولا يتجاوز هذا الحد؟"
+_ZERO_STOCK_QUESTION = "كم صنفاً له حد طلب مسجّل ورصيده الحالي صفر؟"
+
+
+async def _count_query(key: str, question: str, fixed_sql: str, column: str) -> int:
+    """Run a one-number check: the query written from the comments when DASHBOARD_SQL=comments (pinned, with the hand-written
+    one as the fallback), else the hand-written one."""
+    from reporting import pins, widget_sql
+    sql, source = await widget_sql.resolve_named(key, question, fixed_sql, [column])
     try:
         data = await execute_query(sql)
-        if not data:
-            return []
-        count = int(data[0].get("LOW_COUNT", 0) or 0)
+    except Exception:
+        if source not in ("pinned", "generated"):
+            raise
+        pins.mark_failed(key, "failed in the monitor")
+        data = await execute_query(fixed_sql)
+    return int((data[0].get(column) or data[0].get(column.lower()) or 0) if data else 0)
+
+
+async def check_low_inventory() -> list[Alert]:
+    """Items that have a reorder level and whose stock has fallen to it."""
+    alerts = []
+    try:
+        count = await _count_query("monitor/low_stock", _LOW_STOCK_QUESTION, _LOW_STOCK_SQL, "LOW_COUNT")
 
         if count > 0:
             sev = "critical" if count >= 10 else "warning" if count >= 3 else "info"
             alerts.append(make_alert(
                 category="inventory", severity=sev,
                 title="أصناف منخفضة المخزون",
-                message=f"{count} صنف وصل إلى مستوى مخزون حرج (5 وحدات أو أقل)",
+                message=f"{count} صنف وصل رصيده إلى حد الطلب المسجّل له أو نزل عنه",
                 impact="نفاد المخزون يؤدي لفقدان مبيعات وعدم رضا العملاء",
                 recommendation="مراجعة أوامر الشراء وإعادة طلب الأصناف الحرجة",
                 value=count, check_key="low_inventory",
@@ -161,25 +184,15 @@ async def check_low_inventory() -> list[Alert]:
 # ═══════════════════════════════════════════════════════════════════
 
 async def check_zero_stock() -> list[Alert]:
-    """Detect items completely out of stock."""
-    sql = (
-        "SELECT COUNT(*) AS ZERO_COUNT "
-        "FROM TRANSACTION_TOT t "
-        "JOIN ITEMS i ON i.ITEMID = t.ITEMID "
-        "WHERE t.QTY = 0 "
-        "FETCH FIRST 1 ROWS ONLY"
-    )
+    """Items that have a reorder level and are completely out of stock."""
     alerts = []
     try:
-        data = await execute_query(sql)
-        if not data:
-            return []
-        count = int(data[0].get("ZERO_COUNT", 0) or 0)
+        count = await _count_query("monitor/zero_stock", _ZERO_STOCK_QUESTION, _ZERO_STOCK_SQL, "ZERO_COUNT")
         if count >= 5:
             alerts.append(make_alert(
                 category="inventory", severity="info",
                 title="أصناف نافدة من المخزون",
-                message=f"{count} صنف بمخزون صفري",
+                message=f"{count} صنف له حد طلب رصيده صفر",
                 impact="الأصناف النافدة تعني فرص مبيعات ضائعة",
                 recommendation="مراجعة الأصناف النافدة وتحديد أيها يحتاج إعادة طلب",
                 value=count, check_key="zero_stock",
@@ -349,17 +362,37 @@ ALL_CHECKS = [
 ]
 
 
+# The stock checks evaluate the balance function for every item that has a reorder level: heavier than the others, and stock
+# does not change in a way that needs a look every 15 minutes. They run at most every MONITOR_HEAVY_INTERVAL_SECONDS
+# (default an hour); in between the alerts they found stay as they were (a skipped check must not "resolve" its alerts).
+HEAVY_CHECKS = {"check_low_inventory", "check_zero_stock"}
+_last_heavy: dict[str, tuple[float, list]] = {}
+
+
+def _heavy_interval() -> int:
+    try:
+        return max(0, int(os.getenv("MONITOR_HEAVY_INTERVAL_SECONDS", "3600")))
+    except ValueError:
+        return 3600
+
+
 async def run_all_checks() -> list[Alert]:
     """Execute all monitoring checks and update the alert store."""
     start = time.time()
     all_alerts = []
 
     for check_fn in ALL_CHECKS:
+        name = check_fn.__name__
         try:
+            if name in HEAVY_CHECKS and name in _last_heavy and time.time() - _last_heavy[name][0] < _heavy_interval():
+                all_alerts.extend(_last_heavy[name][1])
+                continue
             alerts = await check_fn()
+            if name in HEAVY_CHECKS:
+                _last_heavy[name] = (time.time(), alerts)
             all_alerts.extend(alerts)
         except Exception as e:
-            log.warning(f"[MONITOR] {check_fn.__name__} failed: {e}")
+            log.warning(f"[MONITOR] {name} failed: {e}")
 
     # Update global store (handles dedup + resolve)
     alert_store.update(all_alerts)
