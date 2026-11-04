@@ -80,7 +80,7 @@ def check_response(sc: Scenario, resp: dict) -> list[str]:
 
 def _norm(value):
     if value is None:
-        return ""
+        return "0.00"             # an empty SUM is NULL and means zero: the answer "0" and the value NULL agree
     if isinstance(value, (int, float)):
         return f"{float(value):.2f}"
     try:
