@@ -589,3 +589,9 @@ def test_actions_that_cannot_run_on_this_database_are_not_confirmable():
     assert plan.validation_errors and "غير متاح" in " ".join(plan.validation_errors)
     ok = planner.plan_action("update_item_price", {"itemid": "5", "sellprice": 250}, "u1", "1", "2024")
     assert not ok.validation_errors
+
+
+async def test_a_disabled_action_is_refused_at_confirmation(fake_dml):
+    plan = planned("create_payment", cust_id="1", amount=5)
+    done = await executor.confirm_and_execute(plan.id, "u1")
+    assert done.status == ActionStatus.FAILED.value and fake_dml == []

@@ -41,6 +41,9 @@ def validate_plan(plan: ActionPlan) -> tuple[bool, list[str]]:
     except ValueError as e:
         return False, [str(e)]
 
+    if action_def.disabled_reason:
+        errors.append(action_def.disabled_reason)
+
     for param in action_def.required_params:
         if param not in plan.parameters or not str(plan.parameters[param]).strip():
             label = action_def.param_labels.get(param, param)
