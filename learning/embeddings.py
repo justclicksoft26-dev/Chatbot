@@ -47,6 +47,17 @@ def _get_embedding_gemini(text: str) -> list[float] | None:
         return None
 
 
+MAX_CACHED_QUESTIONS = 5000
+
+
+def _evict_questions() -> None:
+    """Every question a user types is embedded and cached; keep the newest MAX_CACHED_QUESTIONS of them.
+    Knowledge entries (any other category) are never evicted. Caller holds _cache_lock."""
+    questions = [k for k, v in _CACHE.items() if v.get("category") == "question"]
+    for key in questions[:max(0, len(questions) - MAX_CACHED_QUESTIONS)]:
+        del _CACHE[key]
+
+
 def get_embedding(text: str, category: str = "question") -> list[float] | None:
     """Get embedding — checks in-memory cache first, then generates via API."""
     text_hash = hashlib.md5(text.encode()).hexdigest()
@@ -67,6 +78,7 @@ def get_embedding(text: str, category: str = "question") -> list[float] | None:
             "category": category,
             "metadata": {},
         }
+        _evict_questions()
     return embedding
 
 

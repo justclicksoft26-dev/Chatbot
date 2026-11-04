@@ -152,3 +152,16 @@ def test_manual_knowledge_needs_admin(monkeypatch):
     monkeypatch.delenv("ADMIN_API_KEY", raising=False)
     r = TestClient(app_module.app).post("/learning/knowledge", json={"concept": "valid_concept"})
     assert r.status_code == 403
+
+
+def test_question_embeddings_are_capped_but_knowledge_is_kept(monkeypatch):
+    from learning import embeddings as emb
+    monkeypatch.setattr(emb, "MAX_CACHED_QUESTIONS", 3)
+    emb._CACHE.clear()
+    emb._CACHE["k"] = {"text": "kb", "embedding": [0.1], "category": "knowledge", "metadata": {}}
+    monkeypatch.setattr(emb, "_get_embedding_gemini", lambda text: [0.5])
+    for i in range(6):
+        emb.get_embedding(f"q{i}")
+    cats = [v["category"] for v in emb._CACHE.values()]
+    assert cats.count("question") == 3 and "knowledge" in cats
+    emb._CACHE.clear()

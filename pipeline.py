@@ -1105,7 +1105,18 @@ def _extract_search_entity(question: str) -> str:
     m = _ENTITY_PREP_RE.search(question or "")
     if not m:
         return ""
-    name = m.group(1).strip()
+    name = m.group(1).strip().strip("؟?!.,،؛;:\"'").strip().replace("'", "")
+    # "على مستوى الفروع" / "على الفروع": when half or more of its words belong to the schema's own vocabulary it names a
+    # concept to group or filter by, not a person or place to look up with LIKE.
+    try:
+        from nlu import schema_loader as _sl
+        vocab = set().union(*_sl._get_table_tokens().values()) if _sl._get_table_tokens() else set()
+        parts = [w for w in name.split() if w]
+        known = sum(1 for w in parts if _sl._normalize_concept(w) in vocab)
+        if parts and vocab and known * 2 >= len(parts):
+            return ""
+    except Exception:
+        pass
     # Require at least one Arabic letter — skip pure dates/numbers ("على 2024")
     if len(name) < 2 or not re.search(r'[؀-ۿ]', name):
         return ""
@@ -1290,6 +1301,10 @@ async def _execute_llm_controlled(
 
         truncated = any(row.get("__truncated__") for row in data)
         data = [row for row in data if not row.get("__truncated__")]
+        # The query itself may cap the rows ("FETCH FIRST 200 ROWS ONLY" is the default the model is told to use):
+        # exactly that many rows back means there are probably more, and the answer must not read as complete.
+        _cap = re.findall(r"FETCH\s+FIRST\s+(\d+)\s+ROWS?\s+ONLY", sql, re.IGNORECASE)
+        capped_by_query = bool(_cap) and len(data) >= int(_cap[-1]) >= 50
 
         # Format answer (async — keeps event loop free during LLM call)
         answer = await _safe_format_answer_async(
@@ -1309,6 +1324,10 @@ async def _execute_llm_controlled(
 
         if truncated:
             answer += "\n\n---\n⚠️ النتائج مقتصرة على أول 500 سجل — يمكن تضييق نطاق البحث للحصول على نتائج أكثر دقة."
+        elif capped_by_query:
+            answer += (f"\n\n---\n⚠️ تم عرض أول {len(data)} سجل فقط وقد توجد نتائج أخرى — حدّد الفلتر لتضييق النتائج."
+                       if is_arabic_q else
+                       f"\n\n---\n⚠️ Showing the first {len(data)} rows; there may be more — narrow the filter.")
 
         log_query(user_id, question, sql, safety, success=True, rows=len(data))
 

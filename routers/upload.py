@@ -59,8 +59,18 @@ async def upload_and_analyze(
         raise HTTPException(status_code=400, detail="لم يتم رفع ملف")
 
     # Read file content
-    content = await file.read()
-    file_size = len(content)
+    # Read in pieces and stop as soon as the limit is passed: file.read() would load a huge upload whole before
+    # the size check could refuse it.
+    chunks, file_size = [], 0
+    while True:
+        chunk = await file.read(1024 * 1024)
+        if not chunk:
+            break
+        file_size += len(chunk)
+        if file_size > MAX_FILE_SIZE:
+            raise HTTPException(status_code=400, detail=validate_image(file.filename, file_size) or "حجم الملف أكبر من المسموح")
+        chunks.append(chunk)
+    content = b"".join(chunks)
 
     # Validate
     error = validate_image(file.filename, file_size)
