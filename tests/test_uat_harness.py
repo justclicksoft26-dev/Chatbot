@@ -247,3 +247,9 @@ def test_each_scenario_starts_with_a_clean_conversation(monkeypatch):
                         lambda req, timeout=0: seen.append((req.full_url, req.headers.get("X-api-key"))) or type("R", (), {"read": lambda self: b"{}"})())
     run_uat.reset_session("http://x:8000/", "key", "uat-1")
     assert seen == [("http://x:8000/chat/clear-memory", "key")]
+
+
+def test_an_empty_sum_matches_a_zero_reference():
+    from uat.scenario import rows_match
+    assert rows_match([{"v": 0}], [{"net": None, "total": None}])[0]
+    assert not rows_match([{"v": 5}], [{"net": None}])[0]
