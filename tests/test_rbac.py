@@ -195,3 +195,27 @@ def test_authenticate_request_without_bearer(jwt_env):
 def test_api_key_mode_never_authenticates_here(monkeypatch):
     monkeypatch.setattr(rbac, "_AUTH_MODE", "api_key")
     assert rbac.authenticate_request({"authorization": "Bearer x"}) is None
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT * FROM (SELECT * FROM MAIN_INV)",
+    "SELECT COUNT(*) FROM COMPANIES WHERE X IN (SELECT CUST_ID FROM MAIN_INV)",
+    "SELECT (SELECT SUM(FINALTOTAL) FROM MAIN_INV) T FROM DUAL",
+    "WITH a AS (SELECT * FROM MAIN_INV) SELECT * FROM a",
+])
+def test_branch_restriction_reaches_subqueries_and_inline_views(sql):
+    rbac.assign_role("branch5", "sales", "1", ["5"])
+    try:
+        out, params = rbac.inject_row_level_security(sql, "branch5")
+    finally:
+        rbac._user_roles.pop("branch5", None)
+    assert "BRANCH_ID IN (:rls_branch_0)" in out and params == {"rls_branch_0": "5"}
+
+
+def test_parentheses_inside_a_text_literal_do_not_confuse_the_branch_restriction():
+    rbac.assign_role("branch5", "sales", "1", ["5"])
+    try:
+        out, _ = rbac.inject_row_level_security("SELECT * FROM MAIN_INV WHERE NOTE LIKE '%(SELECT x)%'", "branch5")
+    finally:
+        rbac._user_roles.pop("branch5", None)
+    assert out.count("BRANCH_ID IN") == 1
