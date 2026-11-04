@@ -72,6 +72,11 @@ def _tables_in(sql: str) -> set[str]:
     return found - {"DUAL"} - set(_STRUCTURAL_TABLES)         # pseudo-tables hold no business data
 
 
+def _tables_in_aliases(sql: str) -> list[tuple[str, str]]:
+    from security.query_policy import _extract_table_aliases
+    return [(t, a) for t, a in _extract_table_aliases(sql) if t.upper() not in ("DUAL",)]
+
+
 def domains_used(sql: str) -> set[str]:
     """Domains of every table and stored function the SQL reads (shared excluded)."""
     used = {_domain_of(t) for t in _tables_in(sql)}
