@@ -138,6 +138,14 @@ async def test_a_question_whose_query_keeps_failing_is_kept(world):
     assert kinds() == ["error"]
 
 
+async def test_a_database_outage_is_not_a_gap_and_is_not_rewritten(world):
+    db = Db(fail="ORA-03113: end-of-file on communication channel")
+    world("SELECT COUNT(*) AS n FROM CUST", db)
+    r = await ask("كم عدد العملاء؟")
+    assert r.method == "error" and "قاعدة البيانات" in r.answer
+    assert kinds() == [] and len(db.calls) == 1            # no second attempt with a rewritten query
+
+
 async def test_an_answered_question_is_not_kept(world):
     world("SELECT COUNT(*) AS n FROM CUST", Db())
     await ask("كم عدد العملاء؟")
