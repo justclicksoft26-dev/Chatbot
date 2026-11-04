@@ -157,3 +157,9 @@ def test_invalidate_by_intent():
     response_cache.put("q2", "1", "2024", answer="a", template_used="item_list", ttl=60)
     assert response_cache.invalidate_by_intent("customer") == 1
     assert response_cache.get("q2", "1", "2024") is not None
+
+
+def test_sql_cache_key_ignores_keyword_case_but_not_literal_case():
+    from infra.cache import make_sql_key
+    assert make_sql_key("SELECT a FROM t  WHERE x = 'Abc'") == make_sql_key("select a from T where x = 'Abc'")
+    assert make_sql_key("SELECT a FROM t WHERE x = 'ABC'") != make_sql_key("SELECT a FROM t WHERE x = 'abc'")

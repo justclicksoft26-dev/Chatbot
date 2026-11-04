@@ -268,12 +268,15 @@ def plan_action(
     params: dict,
     user_id: str = "",
     company_code: str = "1",
-    fiscal_year: str = "2024",
+    fiscal_year: str = "",
 ) -> ActionPlan:
     """
     Create an ActionPlan from detected intent and parameters.
     The plan is in PLANNED status, awaiting user confirmation.
     """
+    if not fiscal_year:
+        from infra.settings import default_fiscal_year
+        fiscal_year = default_fiscal_year()
     action_def = get_action_def(action_type)
 
     # Check required params

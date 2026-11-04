@@ -169,3 +169,7 @@ async def test_execute_query_passes_supplied_binds_through(fast, monkeypatch):
 
 def test_an_unknown_column_that_mentions_connection_is_not_retried():
     assert db._is_transient_error(Exception('ORA-00904: "CONNECTION_ID": invalid identifier')) is False
+
+
+def test_duplicate_column_names_are_kept_apart():
+    assert db._unique_columns(["name", "total", "name", "name"]) == ["name", "total", "name_2", "name_3"]
