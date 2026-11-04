@@ -163,6 +163,16 @@ def has_bind_variables(sql: str) -> bool:
     return bool(re.search(r':(?!=)\b[a-zA-Z_]\w*', sql))
 
 
+def _unique_columns(cols: list[str]) -> list[str]:
+    """`SELECT a.NAME, b.NAME` returns two columns called name: dict(zip(...)) would silently keep only the last."""
+    seen: dict[str, int] = {}
+    out = []
+    for c in cols:
+        seen[c] = seen.get(c, 0) + 1
+        out.append(c if seen[c] == 1 else f"{c}_{seen[c]}")
+    return out
+
+
 def _run_query_sync_on_pool(pool, sql: str, params: dict = None) -> list[dict]:
     """Synchronous query execution on a given pool (runs in thread pool via asyncio)."""
     with pool.acquire() as conn:
@@ -173,7 +183,7 @@ def _run_query_sync_on_pool(pool, sql: str, params: dict = None) -> list[dict]:
             pass
         with conn.cursor() as cur:
             cur.execute(sql, _only_used_binds(sql, params))
-            cols = [d[0].lower() for d in cur.description]
+            cols = _unique_columns([d[0].lower() for d in cur.description])
             rows = cur.fetchmany(501)
             truncated = len(rows) > 500
             result = [dict(zip(cols, row)) for row in rows[:500]]

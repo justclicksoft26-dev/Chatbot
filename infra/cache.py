@@ -171,7 +171,9 @@ schema_cache = LRUTTLCache("schema_ctx", max_size=MAX_SCHEMA_ENTRIES, default_tt
 
 def make_sql_key(sql: str) -> str:
     """Generate cache key from SQL string."""
-    normalized = " ".join(sql.lower().split())
+    # Keywords and identifiers are case-insensitive, text literals are not: 'ABC' and 'abc' are different queries.
+    parts = re.split(r"('(?:[^']|'')*')", sql)
+    normalized = " ".join("".join(p if i % 2 else p.lower() for i, p in enumerate(parts)).split())
     return f"sql:{hashlib.md5(normalized.encode('utf-8')).hexdigest()}"
 
 

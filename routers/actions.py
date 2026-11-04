@@ -26,6 +26,8 @@ from routers.schemas import ScopeValue
 
 log = logging.getLogger("routers.actions")
 
+from infra.settings import default_fiscal_year
+
 router = APIRouter(prefix="/actions", tags=["actions"])
 
 
@@ -37,6 +39,7 @@ class ActionPlanRequest(BaseModel):
     question: str
     user_id: str = "web_user"
     company_code: ScopeValue = "1"
+    fiscal_year: ScopeValue = ""          # empty -> DEFAULT_FISCAL_YEAR or the current year (what the chat path uses)
 
 
 class ActionConfirmRequest(BaseModel):
@@ -123,6 +126,7 @@ async def create_action_plan(req: ActionPlanRequest, request: Request):
         params=params,
         user_id=user_id,
         company_code=req.company_code,
+        fiscal_year=req.fiscal_year or default_fiscal_year(),
     )
     if not plan:
         return {
