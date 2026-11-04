@@ -55,6 +55,7 @@ from erp_actions.workflows import is_workflow_query, get_pending_approvals, get_
 from erp_actions.apex_nav import detect_navigation_intent, find_pages
 from reporting.export_engine import detect_export_intent, ExportRequest, generate_export, ExportFormat
 from security import permissions
+from nlu.name_match import normalize_ar, rewrite_name_likes, likes_in, similar_names, SQL_FROM, SQL_TO
 from reporting.executive_reports import detect_report_intent, generate_executive_report, format_report_for_chat, report_allowed
 
 
@@ -73,6 +74,55 @@ def _permission_fingerprint(perms) -> str:
 
 
 _DUAL_MESSAGE_RE = re.compile(r"^\s*SELECT\s+(?P<sel>.+?)\s+FROM\s+DUAL\b", re.IGNORECASE | re.DOTALL)
+
+
+async def _name_suggestions(sql: str, user_id: str, company_code: str, fiscal_year: str) -> list[str]:
+    """A name search that found nothing: the closest names that do exist, for "did you mean".
+
+    The candidates come from one extra query on the same table (only names sharing a few letters with what was typed, so
+    a table of thousands is not read whole), passed through the same permission and scope checks as any other query."""
+    from nlu import schema_loader
+    try:
+        searches = likes_in(sql)
+        if not searches:
+            log.info("[PIPELINE] name suggestions: no name search in the query")
+            return []
+        column, term = searches[0]
+        alias_to_table = {(a or "").upper(): t.upper() for t, a in permissions._tables_in_aliases(sql) if a}
+        qualifier, _, bare = column.rpartition(".")
+        tables = [alias_to_table[qualifier.upper()]] if qualifier and qualifier.upper() in alias_to_table else sorted(permissions._tables_in(sql))
+        table = next((t for t in tables if bare.upper() in schema_loader._column_comments.get(t, {})), "")
+        if not table:
+            log.info("[PIPELINE] name suggestions: column %s is in no table of the query", column)
+            return []
+        words = [w[2:] if w.startswith("ال") and len(w) > 4 else w for w in normalize_ar(term).split()]
+        chunks = sorted({c.replace("'", "") for w in words if len(w) >= 3 for c in (w[:3], w[-3:])})[:6]
+        if not chunks:
+            return []
+        wrapped = f"TRANSLATE({bare}, '{SQL_FROM}', '{SQL_TO}')"
+        cond = " OR ".join(f"{wrapped} LIKE '%{c}%'" for c in chunks)
+        probe = f"SELECT DISTINCT {bare} FROM {table} WHERE {cond}"
+        safety, params = _prep(probe, "", user_id, company_code, fiscal_year)
+        if not safety.is_safe:
+            return []
+        rows, err = await _try_execute(safety.sql, params)
+        if err or not rows:
+            log.info("[PIPELINE] name suggestions: probe gave no rows (%s)", err or "empty")
+            return []
+        candidates = [str(next(iter(r.values()), "")) for r in rows if not r.get("__truncated__")]
+        return similar_names(term, candidates)
+    except Exception as exc:                                    # a suggestion must never break the answer
+        log.info("[PIPELINE] name suggestions skipped: %s", exc)
+        return []
+
+
+def _note_gap(question: str, kind: str, user_id: str) -> None:
+    """Keep an unanswered question for the administrator (infra/gaps.py); never breaks the answer."""
+    try:
+        from infra import gaps
+        gaps.record(question, kind, user_id)
+    except Exception:                                                # noqa: BLE001
+        pass
 
 
 def _follow_up_text(question: str, history: list) -> str:
@@ -1444,12 +1494,15 @@ async def _execute_llm_controlled(
             extra_context=extra_context,
         )
 
+        sql_raw = rewrite_name_likes(sql_raw)         # names are searched in one Arabic spelling (أ/ا، ى/ي، ة/ه)
+
         if _is_message_only_sql(sql_raw):
             # The model chose not to query: the question is unclear (it asks what it needs) or not about the ERP
             # (it says so). Its own words are the answer — a canned "out of scope" would be wrong for an unclear question.
             log.info("[PIPELINE] model answered with a message instead of a query (no table read)")
             texts = profiles.part("prompts")
             fallback = texts.NO_ANSWER_AR if is_arabic_q else texts.NO_ANSWER_EN
+            _note_gap(question, "clarification", user_id)
             return PipelineResult(answer=_message_text(sql_raw) or fallback, sql="", method="assistant_message")
 
         # Safety validation + company / year / branch scoping
@@ -1494,6 +1547,7 @@ async def _execute_llm_controlled(
                 history=history,
                 extra_context=extra_context,  # entity hint persists to auto-fix (e.g. LIKE constraint)
             )
+            sql_raw = rewrite_name_likes(sql_raw)
             safety, params = _prep(sql_raw, question, user_id, company_code, fiscal_year)
             if permissions.is_permission_block(safety.blocked_reason):
                 return PipelineResult(
@@ -1510,6 +1564,7 @@ async def _execute_llm_controlled(
             if not intent.sub_intent:
                 is_arabic = any('؀' <= c <= 'ۿ' for c in question)
                 texts = profiles.part("prompts")
+                _note_gap(question, "no_answer", user_id)
                 return PipelineResult(
                     answer=texts.NO_ANSWER_AR if is_arabic else texts.NO_ANSWER_EN,
                     sql="",
@@ -1538,6 +1593,13 @@ async def _execute_llm_controlled(
             history=history,
             truncated=truncated,
         )
+
+        if not data:
+            _note_gap(question, "empty", user_id)
+            hints = await _name_suggestions(sql, user_id, company_code, fiscal_year)
+            if hints:
+                answer += ("\n\nهل تقصد: " + "، ".join(f"«{h}»" for h in hints) + "؟" if is_arabic_q
+                           else "\n\nDid you mean: " + ", ".join(f"'{h}'" for h in hints) + "?")
 
         if truncated:
             answer += "\n\n---\n⚠️ النتائج مقتصرة على أول 500 سجل — يمكن تضييق نطاق البحث للحصول على نتائج أكثر دقة."
@@ -1605,6 +1667,7 @@ async def _execute_llm_controlled(
                 method="error",
                 error=err_str,
             )
+        _note_gap(question, "error", user_id)
         return PipelineResult(
             answer="حدث خطأ — حاول إعادة صياغة السؤال بشكل أوضح.",
             method="error",

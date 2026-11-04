@@ -318,6 +318,14 @@ async def cache_invalidate(req: CacheInvalidateRequest):
 
 # ── Company endpoints ────────────────────────────────────────────
 
+@router.get("/gaps", dependencies=[Depends(require_admin)])
+async def unanswered_questions(limit: int = 30, days: int = 0):
+    """What people asked that the comments do not explain yet (grouped, most asked first) — the to-do list for
+    improving the schema comments. Administrators only."""
+    from infra import gaps
+    return {"groups": gaps.summary(max(1, min(limit, 200)), max(0, days)), "kinds": gaps.KINDS}
+
+
 @router.get("/me")
 async def who_am_i(request: Request):
     """Who the caller is and what they may read — the page shows it, and a user can check their own access."""
