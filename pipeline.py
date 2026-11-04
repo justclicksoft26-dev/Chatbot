@@ -1586,6 +1586,10 @@ async def _execute_llm_controlled(
         err_str = str(e)
         # The reason must reach the server log: the user only sees a short message.
         log.error("[PIPELINE] question failed (%s): %s", type(e).__name__, err_str[:600])
+        if "LLM_DAILY_LIMIT" in err_str:
+            return PipelineResult(
+                answer="وصلنا اليوم للحد الأقصى لعدد الأسئلة التي يجيب عنها المساعد (حد الميزانية اليومي). يتجدد غداً، أو اطلب من مدير النظام رفع الحد.",
+                method="error", error=err_str)
         # Rate limit handling
         if "429" in err_str or "rate_limit" in err_str.lower() or "resourceexhausted" in err_str.lower():
             return PipelineResult(answer=_quota_message(err_str), method="error", error=err_str)

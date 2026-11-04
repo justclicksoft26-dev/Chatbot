@@ -141,8 +141,20 @@ def _rate_check_sync(key: str, limit: int) -> bool:
         conn.close()
 
 
+def _rate_subject(request: Request) -> str:
+    """Who the limit counts: the verified user (AUTH_MODE=keys), else the client address. People in one office share one
+    address, so counting by address would make colleagues wait for each other; an unverified credential never gets a
+    bucket of its own (anyone could invent a new one per request), it falls back to the address."""
+    if rbac.auth_mode() == "keys":
+        try:
+            return "user-" + rbac.identity_from_request(dict(request.headers))
+        except rbac.AuthenticationRequired:
+            pass
+    return request.client.host if request.client else "unknown"
+
+
 class RateLimitMiddleware(BaseHTTPMiddleware):
-    """Per-IP rate limiter — shared SQLite backend, multi-worker safe."""
+    """Rate limiter per verified user (else per client address) — shared SQLite backend, multi-worker safe."""
 
     async def dispatch(self, request: Request, call_next):
         path = request.url.path.rstrip("/")
@@ -154,8 +166,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             limit = _RATE_LIMIT_LEARNING
 
         if limit > 0:
-            client_ip = request.client.host if request.client else "unknown"
-            key = f"{client_ip}:{path.split('/')[1]}"
+            key = f"{_rate_subject(request)}:{path.split('/')[1]}"
 
             allowed = await asyncio.to_thread(_rate_check_sync, key, limit)
             if not allowed:
@@ -381,6 +392,7 @@ async def health_detail(request: Request):
         "database": "connected" if db_ok else "disconnected",
         "llm_provider": _get_provider(),
         "llm_requests": get_usage().get("request_count", 0),
+        "llm_usage": get_usage(),
         "memory": get_session_stats(),
         "audit": get_audit_stats(),
         "cache": get_cache_stats(),

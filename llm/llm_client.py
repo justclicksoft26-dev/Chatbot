@@ -4,9 +4,12 @@ llm_client.py — JustClick AI Chatbot
 """
 import os
 import re
+import json
 import time
 import asyncio
+import datetime
 import logging
+import threading
 
 import profiles
 
@@ -45,8 +48,90 @@ _usage = {
 }
 
 
+# Per-day accounting, kept in a small file so a restart or a rebuilt container does not reset the day.
+_daily: dict = {}                       # "2026-11-04" -> {"requests": n, "prompt": n, "completion": n}
+_daily_lock = threading.Lock()
+_daily_loaded_from = None
+
+
+class DailyLimitReached(RuntimeError):
+    """LLM_DAILY_REQUEST_LIMIT model calls were already made today."""
+
+
+def _usage_file() -> str:
+    return os.getenv("LLM_USAGE_FILE", "").strip() or os.path.join("data", "llm_usage.json")
+
+
+def _today() -> str:
+    return datetime.date.today().isoformat()
+
+
+def _load_daily() -> None:
+    global _daily, _daily_loaded_from
+    path = _usage_file()
+    if _daily_loaded_from == path:
+        return
+    _daily_loaded_from = path
+    try:
+        with open(path, encoding="utf-8") as fh:
+            _daily = {d: v for d, v in json.load(fh).items() if isinstance(v, dict)}
+    except (OSError, ValueError):
+        _daily = {}
+
+
+def _save_daily() -> None:
+    for old in sorted(_daily)[:-31]:                       # a month of history is plenty
+        del _daily[old]
+    try:
+        path = _usage_file()
+        os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(_daily, fh)
+        os.replace(tmp, path)
+    except OSError as exc:                                  # counting must never break an answer
+        log.warning("[LLM] could not save usage: %s", exc)
+
+
+def _today_usage() -> dict:
+    with _daily_lock:
+        _load_daily()
+        return dict(_daily.get(_today(), {"requests": 0, "prompt": 0, "completion": 0}))
+
+
+def check_daily_limit() -> None:
+    """Refuse a model call once LLM_DAILY_REQUEST_LIMIT calls were made today (0 / unset = no limit)."""
+    limit = _int_env("LLM_DAILY_REQUEST_LIMIT", 0)
+    if limit > 0:
+        used = _today_usage()["requests"]
+        if used >= limit:
+            raise DailyLimitReached(f"LLM_DAILY_LIMIT: {used}/{limit} model calls made today")
+
+
+def _price(name: str):
+    try:
+        return float(os.getenv(name, "").strip())
+    except ValueError:
+        return None
+
+
+def estimate_cost(prompt_tokens: int, completion_tokens: int):
+    """Cost of the tokens at the prices the operator set (LLM_PRICE_IN_PER_MILLION / LLM_PRICE_OUT_PER_MILLION,
+    in LLM_PRICE_CURRENCY); None until both are set — no price is assumed."""
+    price_in, price_out = _price("LLM_PRICE_IN_PER_MILLION"), _price("LLM_PRICE_OUT_PER_MILLION")
+    if price_in is None or price_out is None:
+        return None
+    return {"amount": round(prompt_tokens * price_in / 1e6 + completion_tokens * price_out / 1e6, 4),
+            "currency": os.getenv("LLM_PRICE_CURRENCY", "USD").strip() or "USD"}
+
+
 def get_usage() -> dict:
-    return dict(_usage)
+    usage = dict(_usage)                                      # since this process started
+    today = _today_usage()
+    usage["today"] = {"date": _today(), **today, "cost_estimate": estimate_cost(today["prompt"], today["completion"])}
+    usage["since_start_cost_estimate"] = estimate_cost(usage["total_prompt"], usage["total_completion"])
+    usage["daily_request_limit"] = _int_env("LLM_DAILY_REQUEST_LIMIT", 0)
+    return usage
 
 
 def _track_usage(prompt_tokens: int, completion_tokens: int):
@@ -56,6 +141,13 @@ def _track_usage(prompt_tokens: int, completion_tokens: int):
     _usage["total_completion"] += completion_tokens
     _usage["total_tokens"] = _usage["total_prompt"] + _usage["total_completion"]
     _usage["request_count"] += 1
+    with _daily_lock:
+        _load_daily()
+        day = _daily.setdefault(_today(), {"requests": 0, "prompt": 0, "completion": 0})
+        day["requests"] += 1
+        day["prompt"] += prompt_tokens or 0
+        day["completion"] += completion_tokens or 0
+        _save_daily()
 
 
 def _get_provider() -> str:
@@ -277,6 +369,7 @@ def _retry_wait(error_text: str, attempt: int) -> float:
 
 
 def _call_llm(messages: list, temperature: float, max_tokens: int) -> str:
+    check_daily_limit()
     providers = _usable_providers(_get_provider())
     max_retries = _int_env("LLM_MAX_RETRIES", 2)
     max_wait = _int_env("LLM_RETRY_MAX_WAIT_SECONDS", 20)
