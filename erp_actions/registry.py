@@ -207,7 +207,7 @@ _reg(ActionDef(
     required_params=["itemname", "sellprice"],
     optional_params=[
         "item_name_e", "groupid", "unit_id", "total_buyprice",
-        "bar_code", "limit", "max_limit", "item_type",
+        "bar_code", "min_limit", "max_limit", "item_type",
     ],
     description_template_ar="إنشاء صنف جديد: {itemname}",
     description_template_en="Create new item: {itemname}",
@@ -219,18 +219,18 @@ _reg(ActionDef(
         "groupid": "مجموعة الصنف",
         "unit_id": "وحدة القياس",
         "bar_code": "الباركود",
-        "limit": "الحد الأدنى",
+        "min_limit": "حد الطلب (الحد الأدنى)",
         "max_limit": "الحد الأقصى",
         "item_type": "نوع الصنف",
     },
     sql_template="""
         INSERT INTO ITEMS (
             ITEMID, ITEMNAME, ITEM_NAME_E, SELLPRICE, TOTAL_BUYPRICE,
-            GROUPID, UNIT_ID, BAR_CODE, "LIMIT", MAX_LIMIT, ITEM_TYPE,
+            GROUPID, UNIT_ID, BAR_CODE, MIN_LIMIT, MAX_LIMIT, ITEM_TYPE,
             COMPANY_CODE, FISCAL_YEAR
         ) VALUES (
             :itemid, :itemname, :item_name_e, :sellprice, :total_buyprice,
-            :groupid, :unit_id, :bar_code, :limit_val, :max_limit, :item_type,
+            :groupid, :unit_id, :bar_code, :min_limit, :max_limit, :item_type,
             :company_code, :fiscal_year
         )
     """,
