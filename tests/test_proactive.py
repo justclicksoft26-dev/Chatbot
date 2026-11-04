@@ -418,3 +418,20 @@ async def test_a_failed_check_does_not_resolve_existing_alerts(monkeypatch):
     monkeypatch.setattr(monitor, "ALL_CHECKS", [])
     await monitor.run_all_checks()
     assert not [a for a in alert_store._active.values() if not a.resolved]
+
+
+async def test_background_queries_run_as_a_system_administrator_even_when_keys_are_enforced(monkeypatch):
+    from proactive import scoped
+    from security import rbac
+    seen = {}
+
+    async def fake(sql, params=None):
+        seen["sql"] = sql
+        return [{"x": 1}]
+
+    monkeypatch.setattr(scoped.db, "execute_read_query", fake)
+    monkeypatch.setattr(rbac, "_AUTH_MODE", "keys")
+    rbac._user_roles.pop(scoped.SYSTEM_USER, None)
+    rows = await scoped.execute_query("SELECT SUM(FINALTOTAL) AS T FROM MAIN_INV WHERE INVTYPE = 0")
+    assert rows == [{"x": 1}] and "FINALTOTAL" in seen["sql"]
+    rbac._user_roles.pop(scoped.SYSTEM_USER, None)

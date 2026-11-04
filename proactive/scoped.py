@@ -23,9 +23,21 @@ def monitor_fiscal_year() -> str:
     return os.getenv("MONITOR_FISCAL_YEAR", "").strip() or default_fiscal_year()
 
 
+SYSTEM_USER = "system:monitor"
+
+
+def _system_identity() -> str:
+    """The identity background jobs run as: an administrator bound to the monitored company. With AUTH_MODE=keys or
+    jwt an unknown identity is a restricted viewer, which would block every alert query (masked FINALTOTAL, no
+    accounting domain) and make the monitor see nothing."""
+    from security import rbac
+    rbac.assign_role(SYSTEM_USER, "admin", monitor_company(), ["*"])
+    return SYSTEM_USER
+
+
 async def execute_query(sql: str, params: dict = None) -> list[dict]:
     safety, scope_params = prepare_sql(
-        sql, user_id="", company_code=monitor_company(),
+        sql, user_id=_system_identity(), company_code=monitor_company(),
         fiscal_year=monitor_fiscal_year(), classify=False,
     )
     if not safety.is_safe:
