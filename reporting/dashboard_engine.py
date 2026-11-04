@@ -8,6 +8,7 @@ All SQL verified against justclick_comments.sql column names.
 """
 import os
 import asyncio
+import dataclasses
 import logging
 from dataclasses import dataclass, field
 from typing import Optional
@@ -778,7 +779,7 @@ async def execute_dashboard(dashboard_id: str, prepare=None) -> Optional[dict]:
         return None
 
     # Execute all widget queries in parallel
-    tasks = [_execute_widget(w, prepare) for w in dash.widgets]
+    tasks = [_execute_widget(w, prepare, dash.id) for w in dash.widgets]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
     widgets_out = []
@@ -800,27 +801,45 @@ async def execute_dashboard(dashboard_id: str, prepare=None) -> Optional[dict]:
     }
 
 
-async def _execute_widget(widget: WidgetDef, prepare=None) -> dict:
+async def _execute_widget(widget: WidgetDef, prepare=None, dashboard_id: str = "") -> dict:
     """Execute a single widget query and transform data (concurrency-limited)."""
     async with _widget_semaphore:
-        return await _execute_widget_inner(widget, prepare)
+        return await _execute_widget_inner(widget, prepare, dashboard_id)
 
 
-async def _execute_widget_inner(widget: WidgetDef, prepare=None) -> dict:
-    """Execute a single widget query and transform data."""
-    sql = widget.sql.strip()
+async def _run_widget_sql(widget: WidgetDef, sql: str, prepare):
+    """Scope the query to the caller, run it: (data, error). A refusal by the security checks is an error too."""
     params = None
     if prepare is not None:
         safety, params = prepare(sql)
         if not safety.is_safe:
             log.warning(f"[DASHBOARD] Widget {widget.id} refused: {safety.blocked_reason}")
-            return _error_widget(widget, safety.blocked_reason)
+            return None, safety.blocked_reason
         sql = safety.sql
     try:
-        data = await execute_query(sql, params) if params else await execute_query(sql)
+        return (await execute_query(sql, params) if params else await execute_query(sql)), None
     except Exception as e:
         log.warning(f"[DASHBOARD] SQL error for {widget.id}: {e}")
-        return _error_widget(widget, str(e))
+        return None, str(e)
+
+
+async def _execute_widget_inner(widget: WidgetDef, prepare=None, dashboard_id: str = "") -> dict:
+    """Execute a single widget query and transform data."""
+    from reporting import pins, widget_sql
+    sql, source = await widget_sql.resolve(dashboard_id, widget)
+    data, error = await _run_widget_sql(widget, sql, prepare)
+    if error and source in ("pinned", "generated"):
+        # a query written from the comments failed: show the widget from its fixed query, and write the pin again next time
+        # (a refusal for the caller's permissions is not a bad query: the fixed one would be refused the same way)
+        if "permission" not in error and error != "invalid scope":
+            pins.mark_failed(f"{dashboard_id}/{widget.id}", error)
+        data, error = await _run_widget_sql(widget, widget.sql.strip(), prepare)
+        source = "fixed-fallback"
+    if error:
+        return _error_widget(widget, error)
+    if source in ("pinned", "generated"):
+        # the generated query answers in the columns the widget asked for (LABEL / VALUE): the hand-written overrides do not apply
+        widget = dataclasses.replace(widget, value_col="", label_col="")
 
     # Strip __truncated__ sentinel rows from db.py
     data = [row for row in data if not row.get("__truncated__")]
@@ -828,6 +847,7 @@ async def _execute_widget_inner(widget: WidgetDef, prepare=None) -> dict:
     base = {
         "id": widget.id,
         "title": widget.title,
+        "sql_source": source,
         "type": widget.type,
         "size": widget.size,
         "icon": widget.icon,

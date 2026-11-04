@@ -31,6 +31,8 @@ def isolated_sqlite(tmp_path, monkeypatch):
     """Point every SQLite user (actions, sessions, rate limit, audit) at a temp file."""
     monkeypatch.setenv("LEARNING_DB_PATH", str(tmp_path / "learning.db"))
     monkeypatch.setenv("GAPS_FILE", str(tmp_path / "gaps.jsonl"))
+    monkeypatch.setenv("PINNED_SQL_FILE", str(tmp_path / "pinned_sql.json"))
+    monkeypatch.delenv("DASHBOARD_SQL", raising=False)
     monkeypatch.setenv("LLM_USAGE_FILE", str(tmp_path / "llm_usage.json"))      # the day's model-call count lives in a file
     from llm import llm_client
     monkeypatch.setattr(llm_client, "_daily", {})
