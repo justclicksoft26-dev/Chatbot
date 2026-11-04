@@ -245,6 +245,15 @@ def _extract_tables_ast(sql: str) -> set[str]:
         for tbl in re.findall(r'[A-Za-z_]\w*', match.group(1)):
             tables.add(tbl.upper())
 
+    # Old-style comma lists with aliases: FROM A a, B b, C  — every item is a table, not only the first two
+    for match in re.finditer(r'\bFROM\s+(?!\()([^()]*?)(?=\bWHERE\b|\bGROUP\b|\bORDER\b|\bHAVING\b|\bJOIN\b|\bINNER\b|\bLEFT\b'
+                            r'|\bRIGHT\b|\bFULL\b|\bCROSS\b|\bUNION\b|\bINTERSECT\b|\bMINUS\b|\bFETCH\b|\bCONNECT\b|\)|;|$)',
+                            sql_clean, re.IGNORECASE | re.DOTALL):
+        for item in match.group(1).split(','):
+            first = re.match(r'\s*([A-Za-z_]\w*)', item)
+            if first:
+                tables.add(first.group(1).upper())
+
     # INTO clause (should not appear but detect it)
     for match in re.finditer(r'\bINTO\s+([A-Za-z_]\w*)\b', sql_clean, re.IGNORECASE):
         tables.add(match.group(1).upper())

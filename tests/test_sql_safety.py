@@ -255,3 +255,9 @@ def test_model_written_company_predicate_cannot_replace_the_real_scope():
     assert not _already_filtered("WHERE c.COMPANY_CODE = 2 OR 1=1", "COMPANY_CODE", "c", "CUST", "2")
     assert not _already_filtered("WHERE COMPANY_CODE BETWEEN 1 AND 9", "COMPANY_CODE", "", "CUST", "2")
     assert _already_filtered("WHERE c.COMPANY_CODE = 2", "COMPANY_CODE", "c", "CUST", "2")
+
+
+def test_every_table_of_an_old_style_comma_list_is_checked():
+    assert not s.validate_sql("SELECT c.CUST_NAME FROM CUST c, AI_USER_ROLES r WHERE c.CUSTID = 1").is_safe
+    assert not s.validate_sql("SELECT 1 FROM CUST c, ITEMS i, SECRET_TABLE z").is_safe
+    assert s.validate_sql("SELECT c.CUST_NAME FROM CUST c, ITEMS i WHERE c.CUSTID = i.ITEMID").is_safe

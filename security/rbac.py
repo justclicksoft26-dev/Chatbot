@@ -479,6 +479,32 @@ def enforced_permissions(user_id: str) -> Optional[UserRole]:
     return get_user_permissions(user_id) if is_enforced(user_id) else None
 
 
+def _map_nested_selects(sql: str, fn) -> str:
+    """Replace each outermost parenthesised ``(SELECT ...)`` block of `sql` with ``(fn(inner))``.
+    `fn` handles blocks nested inside the one it is given."""
+    masked = re.sub(r"'(?:[^']|'')*'", lambda m: "x" * len(m.group(0)), sql)      # parentheses inside literals do not count
+    out, pos, i, n = [], 0, 0, len(sql)
+    while i < n:
+        if masked[i] == "(" and re.match(r"\s*SELECT\b", masked[i + 1:i + 40], re.IGNORECASE):
+            depth, j = 0, i
+            while j < n:
+                if masked[j] == "(":
+                    depth += 1
+                elif masked[j] == ")":
+                    depth -= 1
+                    if depth == 0:
+                        break
+                j += 1
+            if depth != 0:
+                break                                   # unbalanced: leave it to the other checks
+            out.append(sql[pos:i + 1])
+            out.append(fn(sql[i + 1:j]))
+            pos, i = j, j
+        i += 1
+    out.append(sql[pos:])
+    return "".join(out)
+
+
 def inject_row_level_security(
     sql: str,
     user_id: str,
@@ -547,6 +573,17 @@ def inject_row_level_security(
     if deny_all and not is_enforced(user_id):
         return sql, {}
 
+    # Every nested SELECT is a query of its own: a subquery or inline view over a branch table
+    # (WHERE x IN (SELECT .. FROM MAIN_INV), FROM (SELECT * FROM MAIN_INV)) must be restricted too.
+    nested_params: dict[str, str] = {}
+
+    def _restrict_inner(inner: str) -> str:
+        inner_sql, inner_params = inject_row_level_security(inner, user_id, company_code)
+        nested_params.update(inner_params)
+        return inner_sql
+
+    sql = _map_nested_selects(sql, _restrict_inner)
+
     # Only inject when the outer query actually references a branch-aware table.
     # Use _strip_subqueries so table names inside subqueries are ignored.
     outer_sql = _strip_subqueries(sql)
@@ -557,7 +594,7 @@ def inject_row_level_security(
         for t in BRANCH_TABLES
     )
     if not touches_branch_table:
-        return sql, {}
+        return sql, dict(nested_params)
 
     # Build named bind params — one per allowed branch value
     params: dict[str, str] = {}
@@ -572,4 +609,4 @@ def inject_row_level_security(
     new_sql = _inject_at_correct_position(sql, [condition])
 
     log.info("[RBAC] Branch RLS injected for user=%s: %d branch(es)", user_id, len(branches))
-    return new_sql, params
+    return new_sql, {**nested_params, **params}
