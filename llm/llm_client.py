@@ -507,7 +507,13 @@ def format_answer(question: str, data: list[dict], sql: str,
                           "The user's question is in English — respond ONLY in English. "
                           "Translate any Arabic column labels or coded values to English.")
 
-    data_str = str(data[:50])
+    # A long list is not written out row by row: the reply gets slow and runs into the token limit before the table ends.
+    # The analyst sees the first rows and the real total, and says the rest is in the export.
+    max_rows = max(5, _int_env("ANSWER_MAX_ROWS", 15))
+    shown = data[:max_rows]
+    data_str = str(shown)
+    cut_note = (f"\n\n(ملاحظة: عدد الصفوف الكلي {len(data)} والمعروض لك أول {len(shown)} فقط — اذكر العدد الكلي، "
+                f"واعرض هذه الصفوف في جدول واحد، وقل إن باقي النتائج متاحة بالتصدير)") if len(data) > max_rows else ""
     history_budget = MAX_PROMPT_CHARS - len(system_prompt) - len(data_str) - len(question) - 500
     trimmed = _trim_history(history or [], max(0, history_budget))
 
@@ -517,7 +523,7 @@ def format_answer(question: str, data: list[dict], sql: str,
     trunc_note = "\n\n(ملاحظة: النتائج مقتصرة على أول 500 سجل — أشر لذلك باختصار)" if truncated else ""
     messages.append({
         "role": "user",
-        "content": f"السؤال: {question}\n\nالبيانات:\n{data_str}{trunc_note}"
+        "content": f"السؤال: {question}\n\nالبيانات:\n{data_str}{cut_note}{trunc_note}"
     })
 
     return _call_llm(messages, temperature=0.25, max_tokens=1500)

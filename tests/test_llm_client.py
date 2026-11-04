@@ -127,11 +127,11 @@ def test_format_answer_forces_question_language(monkeypatch, question, marker):
     assert "500" in seen["m"][-1]["content"]
 
 
-def test_format_answer_only_sends_the_first_50_rows(monkeypatch):
+def test_format_answer_only_sends_the_first_rows(monkeypatch):
     seen = {}
     monkeypatch.setattr(llm, "_call_llm", lambda messages, **k: seen.setdefault("m", messages) and "ok")
     llm.format_answer("q", [{"N": i} for i in range(200)], "SELECT 1")
-    assert "'N': 49" in seen["m"][-1]["content"] and "'N': 50" not in seen["m"][-1]["content"]
+    assert "'N': 14" in seen["m"][-1]["content"] and "'N': 15" not in seen["m"][-1]["content"]
 
 
 async def test_async_wrappers_delegate(monkeypatch):
@@ -323,3 +323,27 @@ def test_usable_providers_order_and_filtering(monkeypatch):
     assert llm._usable_providers("gemini") == ["groq"]
     monkeypatch.delenv("GROQ_API_KEY")
     assert llm._usable_providers("gemini") == ["gemini"]            # nothing configured: keep the primary, its error is the useful one
+
+
+def test_a_long_result_is_summarised_not_written_out_row_by_row(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(llm, "_call_llm", lambda messages, temperature, max_tokens: seen.setdefault("user", messages[-1]["content"]) and "ok")
+    rows = [{"ITEMID": i, "ITEMNAME": f"صنف {i}"} for i in range(200)]
+    llm.format_answer("اعرض الأصناف", rows, "SELECT 1")
+    assert "الصفوف الكلي 200" in seen["user"] and "أول 15" in seen["user"]
+    assert "'ITEMID': 14" in seen["user"] and "'ITEMID': 15" not in seen["user"]
+
+
+def test_a_short_result_is_shown_whole_without_a_note(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(llm, "_call_llm", lambda messages, temperature, max_tokens: seen.setdefault("user", messages[-1]["content"]) and "ok")
+    llm.format_answer("اعرض الأصناف", [{"ITEMID": i} for i in range(10)], "SELECT 1")
+    assert "الصفوف الكلي" not in seen["user"] and "'ITEMID': 9" in seen["user"]
+
+
+def test_the_number_of_rows_shown_can_be_set(monkeypatch):
+    seen = {}
+    monkeypatch.setenv("ANSWER_MAX_ROWS", "30")
+    monkeypatch.setattr(llm, "_call_llm", lambda messages, temperature, max_tokens: seen.setdefault("user", messages[-1]["content"]) and "ok")
+    llm.format_answer("اعرض الأصناف", [{"ITEMID": i} for i in range(100)], "SELECT 1")
+    assert "أول 30" in seen["user"] and "'ITEMID': 29" in seen["user"] and "'ITEMID': 30" not in seen["user"]
