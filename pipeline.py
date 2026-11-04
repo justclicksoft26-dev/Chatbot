@@ -21,7 +21,6 @@ from typing import Optional
 
 import profiles
 from nlu.intent_classifier import classify_intent, has_contextual_signal, Intent
-from nlu.query_templates import find_template, render_template, QueryTemplate
 from security.sql_safety import validate_sql, log_query, SafetyResult
 from infra.memory import (
     get_session, add_user_turn, add_assistant_turn,
@@ -184,34 +183,6 @@ _GATE_TIME_WORDS = (
     "اليوم", "النهارده", "today", "امس", "أمس", "الشهر", "السنة", "سنة",
     "الربع", "اسبوع", "أسبوع", "week", "month", "year",
 )
-
-
-def _template_filter_values(sql_upper: str) -> dict:
-    """Parse coded filter values from template SQL — handles both literal digits
-    (COLUMN = 1) and comment-first placeholders ({{flag:COLUMN:label}}).
-
-    After Phase-C migration no template contains bare digits in filter conditions;
-    they all use {{flag:…}} placeholders.  Without this function resolving those
-    placeholders the semantic gate's transaction-type check (#3) is permanently
-    blind, so misrouted queries (e.g. a 'مشتريات' question reaching an INVTYPE=بيع
-    template) cannot be caught.  Resolving at gate-time keeps the single source of
-    truth (comments) while restoring the safety net.
-    """
-    result: dict[str, str] = {}
-    # 1. Legacy literal digits
-    for m in re.finditer(r'\b([A-Z_][A-Z0-9_]*)\s*=\s*(\d+)\b', sql_upper):
-        result[m.group(1)] = m.group(2)
-    # 2. Comment-first flag placeholders: {{flag:COLUMN:label}} (uppercase after .upper())
-    for m in re.finditer(r'\{\{FLAG:([A-Z_][A-Z0-9_]*):([^}]+)\}\}', sql_upper):
-        col, label = m.group(1), m.group(2).strip()
-        try:
-            from nlu.schema_loader import resolve_flag
-            val = resolve_flag(col, label)
-            if val is not None:
-                result[col] = str(val)
-        except Exception:
-            pass
-    return result
 
 
 def _question_txn(question: str):
@@ -420,98 +391,6 @@ def _foreign_comment_nouns(question: str) -> list[str]:
         return out
     except Exception:
         return []
-
-
-def _template_matches_meaning(template, entities: dict, question: str) -> tuple[bool, str]:
-    """Is this fast template consistent with the question's MEANING?
-    Returns (consistent, reason_if_not). False ⇒ skip template, use the LLM path.
-
-    The authority for business meaning is the schema comments + ontology. The
-    transaction-type check below derives its concepts from the comment flag-
-    dictionaries (single source of truth), NOT from hardcoded keyword lists; the
-    reasoning engine is intentionally not consulted as a routing authority. Time
-    and entity checks are question-intent signals that the comments support.
-    """
-    sql_u = (getattr(template, "sql", "") or "").upper()
-    q = question or ""
-    entities = entities or {}
-
-    # 1. Time scope — template must not impose a date filter the user didn't ask for
-    if "SYSDATE" in sql_u:
-        wants_time = ("time_today" in entities) or any(w in q for w in _GATE_TIME_WORDS)
-        if not wants_time:
-            return False, "template imposes a date filter the question didn't request"
-
-    # 2. Specific entity — template cannot honor a named customer/store/item/etc.
-    present = [k for k in _GATE_SPECIFIC_ENTITIES if k in entities]
-    if present:
-        consumed = set(template.required_params) | set(template.optional_params)
-        if not any(k in consumed for k in present):
-            return False, f"question names {present} but the template can't filter by it"
-
-    # 3. Transaction type — COMMENT-DERIVED. If the question names a coded concept
-    #    whose comment-defined value conflicts with a value the template hard-codes
-    #    (comment: 'INVTYPE 0=بيع 1=شراء' → a شراء question must not use an
-    #    INVTYPE=0 template). Concepts come from the comments, so this auto-extends.
-    try:
-        from nlu.schema_loader import get_flag_concept_map, _normalize_concept
-        q_norm = _normalize_concept(q)
-        tmpl_filters = _template_filter_values(sql_u)
-        if tmpl_filters:
-            for label, mappings in get_flag_concept_map().items():
-                if label in q_norm:
-                    for col, val in mappings:
-                        if col in tmpl_filters and tmpl_filters[col] != val:
-                            return False, (f"comments map '{label}' → {col}={val}, "
-                                           f"but template forces {col}={tmpl_filters[col]}")
-    except Exception:
-        pass
-
-    # 4. Table-domain mismatch — comment-matched primary tables must overlap with
-    #    the template's FROM/JOIN tables. Prevents an accounting-journal template
-    #    from answering a treasury question (or vice-versa) when the intent
-    #    classifier guessed the wrong sub_intent.
-    #    Only applied when we have *real* comment-matched tables — i.e., primary
-    #    contains at least one table beyond ALWAYS_INCLUDE (COMPANIES/BRANCHES).
-    #    If no real match, skip to avoid blocking on a fully ambiguous question.
-    try:
-        from nlu.schema_loader import _select_tables_tiered, ALWAYS_INCLUDE as _AI
-        import re as _re4
-        _primary, _ = _select_tables_tiered(q)
-        real_primary = [t for t in _primary if t not in _AI]
-        if real_primary:
-            tmpl_tables = set(_re4.findall(
-                r'\b(?:FROM|JOIN)\s+([A-Z][A-Z_0-9]+)', sql_u
-            ))
-            if tmpl_tables and not any(t in tmpl_tables for t in real_primary):
-                return False, (
-                    f"comment-matched tables {real_primary[:3]} "
-                    f"have no overlap with template tables {sorted(tmpl_tables)}"
-                )
-    except Exception:
-        pass
-
-    # 5. Month-range specificity — question names a specific month range but the
-    #    template has no date_month_from / date_month_to parameters.
-    #    Without this check an "alltime" template silently answers a Jan→Mar question
-    #    with the total for ALL periods — a subtly wrong but plausible-looking result.
-    #    Fail-open: if the check itself errors (import issues, unexpected entities),
-    #    the template is allowed through so a real ERP question is never blocked.
-    _DATE_MONTH_ENTITIES = frozenset({'date_month_from', 'date_month_to'})
-    if _DATE_MONTH_ENTITIES & entities.keys():
-        try:
-            tmpl_params = set(getattr(template, 'required_params', [])
-                              ) | set(getattr(template, 'optional_params', []))
-            if not (_DATE_MONTH_ENTITIES & tmpl_params):
-                return False, (
-                    "question requests a specific month range "
-                    f"({[e for e in _DATE_MONTH_ENTITIES if e in entities]}) "
-                    "but the template has no date_month parameters — LLM path"
-                )
-        except Exception:
-            pass
-
-    return True, ""
 
 
 def _record_viz(domain: str, sub_intent: str, data: list, chart: dict) -> None:
@@ -1141,71 +1020,8 @@ async def _handle_data_query(
         else:
             log.info("[PIPELINE] invoice_detail with unknown INVTYPE -> LLM (fail-safe)")
 
-    # ── Try template matching (only in ANSWER_MODE=templates) ──
-    # Default ANSWER_MODE=comments: no ready-made SQL; the schema comments are the only source of meaning.
-    if intent.sub_intent and answer_mode() == "templates":
-        # If question is contextual (LLM-classified, no entities, has history)
-        # skip template and go to LLM-controlled which uses conversation history
-        if _needs_history_context(intent, history):
-            log.info(f"[PIPELINE] Contextual question (confidence={intent.confidence:.2f}), "
-                     f"skipping template -> LLM with history")
-        else:
-            template = find_template(intent.sub_intent, intent.entities)
-            log.info(f"[PIPELINE] sub_intent={intent.sub_intent} template={'FOUND:'+template.name if template else 'NONE'}")
-
-            # Hybrid semantic-first gate: the derived MEANING must agree with the
-            # template before it may short-circuit the LLM. Otherwise → LLM path.
-            # Skip gate for high-confidence regex matches — the classifier is trusted
-            # and stale context entities can't falsely block it.
-            _skip_gate = (intent.source == "regex" and intent.confidence >= 0.95)
-            if template and not _skip_gate and os.getenv("SEMANTIC_FIRST", "1") != "0":
-                consistent, why = _template_matches_meaning(
-                    template, intent.entities, question
-                )
-                if not consistent:
-                    log.info(f"[PIPELINE] Semantic gate rejected template "
-                             f"{template.name}: {why} -> LLM path")
-                    template = None
-
-            # Phase 2: Check template trust score from learning engine
-            if template:
-                try:
-                    from learning.engine import should_use_template
-                    if not should_use_template(template.name):
-                        log.info(f"[PIPELINE] Template {template.name} low trust score -> LLM fallback")
-                        template = None
-                except Exception:
-                    pass
-
-            if template:
-                result = await _execute_template(
-                    template=template,
-                    entities=intent.entities,
-                    question=question,
-                    user_id=user_id,
-                    history=history,
-                    company_code=company_code,
-                    fiscal_year=fiscal_year,
-                )
-                log.info(f"[PIPELINE] template_result={'OK' if result else 'FAILED->LLM fallback'}")
-                if result:
-                    # Q5 fix: a fast template can match on a PARTIAL phrase (regex) and
-                    # silently ignore an unknown qualifier the user asked about
-                    # (e.g. "عدد فواتير الطقس" → sales-count, dropping "الطقس"). If the
-                    # question names an ال-prefixed noun subject absent from the comments,
-                    # the template answer is for the WRONG question → return not-found.
-                    _foreign = _foreign_comment_nouns(question)
-                    if _foreign:
-                        is_arabic = any('؀' <= c <= 'ۿ' for c in question)
-                        msg = ("لم أجد تعريفاً لهذا في تعليقات قاعدة البيانات" if is_arabic
-                               else "Term not found in database comments.")
-                        log.info(f"[PIPELINE] template {template.name} matched but question "
-                                 f"has foreign comment-noun(s) {_foreign} -> not-found")
-                        return PipelineResult(answer=msg, method="error", intent=intent)
-                    result.intent = intent
-                    return result
-    else:
-        log.info("[PIPELINE] comments-only path -> LLM" if intent.sub_intent else "[PIPELINE] no sub_intent, going to LLM")
+    # The schema comments are the only source of meaning: no ready-made SQL is tried first.
+    log.info("[PIPELINE] comments-only path -> LLM" if intent.sub_intent else "[PIPELINE] no sub_intent, going to LLM")
 
     # ── CHANGE 2: gate the no-template fallback on COMMENT vocabulary ──
     # No usable template was produced. Before handing the question to the LLM,
@@ -1249,128 +1065,6 @@ async def _handle_data_query(
     return result
 
 
-async def _execute_template(
-    template: QueryTemplate,
-    entities: dict,
-    question: str,
-    user_id: str,
-    history: list,
-    company_code: str = "",
-    fiscal_year: str = "",
-) -> Optional[PipelineResult]:
-    """Execute a query template with extracted parameters.
-
-    NOTE (F5 — known, by-design limitation): the SQL here is produced by
-    render_template() from a vetted, fixed pattern. It deliberately does NOT
-    consume learned knowledge / ontology / trained reports — those only shape
-    the LLM path. The template path's two learning hooks are:
-      1. should_use_template() (engine.py) — can demote a poorly-performing
-         template to the LLM path where full knowledge IS injected;
-      2. _comment_context_for_sql() (RC5) — grounds the ANSWER narrative in
-         column business meaning.
-    So template SQL stays stable/correct but cannot self-improve from training.
-    To let a trained report override a template, route via should_use_template.
-    """
-    try:
-        # Check required params
-        missing = [p for p in template.required_params
-                   if p not in entities and p not in template.param_defaults]
-        if missing:
-            log.info(f"[PIPELINE] Template {template.name} missing params: {missing}")
-            return None
-
-        # Render SQL from template
-        sql = render_template(template, entities)
-
-        log.info(f"[PIPELINE] Template={template.name} SQL={sql[:80]}...")
-
-        # Safety check + company / year / branch scoping
-        safety, params = _prep(sql, question, user_id, company_code, fiscal_year)
-        if not safety.is_safe:
-            log.info(f"[PIPELINE] Template SQL blocked: {safety.blocked_reason}")
-            log_query(user_id, question, sql, safety, success=False)
-            return None
-
-        sql = safety.sql
-
-        # Execute
-        data, err = await _try_execute(sql, params)
-
-        if err:
-            log.info(f"[PIPELINE] Template execution failed: {err[:150]}")
-            log_query(user_id, question, sql, safety, success=False, error=err)
-            return None  # Fall back to LLM
-
-        # Auto-retry LIKE for account codes
-        if len(data) == 0 and "account_code" in entities:
-            data, sql = await _try_like_fallback(sql, entities.get("account_code", ""), params)
-
-        # Auto-retry LIKE for name columns when exact match returns 0
-        if len(data) == 0:
-            data, sql = await _try_name_like_fallback(sql, params)
-
-        truncated = any(row.get("__truncated__") for row in data)
-        data = [row for row in data if not row.get("__truncated__")]
-
-        # Format answer — templates use local formatter to avoid LLM latency
-        answer = _safe_format_answer(
-            question=question,
-            data=data,
-            sql=sql,
-            history=history,
-            truncated=truncated,
-            use_llm=False,
-        )
-
-        if truncated:
-            answer += "\n\n---\n⚠️ النتائج مقتصرة على أول 500 سجل — يمكن تضييق نطاق البحث للحصول على نتائج أكثر دقة."
-
-        log_query(user_id, question, sql, safety, success=True, rows=len(data))
-
-        # Build chart: explicit request or auto-generate
-        chart = None
-        if _wants_chart(question):
-            chart = _build_chart_data(data, question)
-        elif len(data) >= 2:
-            chart = auto_generate_chart(data, question, getattr(template, 'domain', ""))
-
-        # Copilot enrichment
-        _domain = getattr(template, 'domain', "")
-        _sub_intent = getattr(template, 'sub_intent', template.name)
-        if chart:
-            _record_viz(_domain, _sub_intent, data, chart)
-        suggestions = generate_suggestions(
-            question=question,
-            sub_intent=_sub_intent,
-            domain=_domain,
-            data=data,
-            entities=entities,
-            row_count=len(data),
-            has_chart=chart is not None,
-        )
-        insights = generate_insights(
-            data=data,
-            question=question,
-            domain=_domain,
-            row_count=len(data),
-        )
-
-        return PipelineResult(
-            answer=answer,
-            sql=sql,
-            row_count=len(data),
-            template_used=template.name,
-            method="template",
-            safety_warnings=safety.warnings,
-            chart_data=chart,
-            suggestions=suggestions,
-            insights=insights,
-        )
-
-    except Exception as e:
-        log.info(f"[PIPELINE] Template error: {e}")
-        return None
-
 
 # ── Named-entity extraction ────────────────────────────────────────────────
 # Arabic prepositions "على" / "لـ" / "خاص بـ" introduce the subject entity.
@@ -1389,6 +1083,7 @@ _ENTITY_PREP_RE = re.compile(
     r'(?:\s+(?:من|في|خلال|لسنة|لشهر|بين|حتى|إلى|منذ|عن|اليوم|الأسبوع|الشهر|السنة|هذا|هذه)\b|$)',
     re.UNICODE,
 )
+
 
 
 def _extract_search_entity(question: str) -> str:
