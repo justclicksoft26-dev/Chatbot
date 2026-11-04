@@ -326,6 +326,14 @@ async def unanswered_questions(limit: int = 30, days: int = 0):
     return {"groups": gaps.summary(max(1, min(limit, 200)), max(0, days)), "kinds": gaps.KINDS}
 
 
+@router.get("/pins", dependencies=[Depends(require_admin)])
+async def pinned_queries():
+    """The queries behind the dashboard widgets that were written from the schema comments, with their status
+    (auto = not reviewed yet, approved, failed). Administrators only; approve with  python -m tools.pins approve."""
+    from reporting import pins, widget_sql
+    return {"mode": widget_sql.mode(), "pins": [p.__dict__ for p in pins.all_pins()]}
+
+
 @router.get("/me")
 async def who_am_i(request: Request):
     """Who the caller is and what they may read — the page shows it, and a user can check their own access."""
