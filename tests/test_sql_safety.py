@@ -216,3 +216,42 @@ def test_audit_log_is_bounded():
     for i in range(s.MAX_AUDIT + 25):
         s.log_query("u", str(i), "SELECT 1", ok, True)
     assert len(s._audit_log) == s.MAX_AUDIT
+
+
+# ── Table names the allowlist/permission/company checks cannot read ─────
+@pytest.mark.parametrize("sql", [
+    'SELECT * FROM "EMPLOYEES"',
+    'SELECT c.CUST_NAME FROM CUST c JOIN "EMPLOYEES" e ON 1=1',
+    "SELECT CUST_NAME FROM SCOTT.CUST",
+    "SELECT CUST_NAME FROM CUST@remote_db",
+])
+def test_opaque_table_forms_are_blocked(sql):
+    assert not s.validate_sql(sql).is_safe
+
+
+def test_quoted_aliases_are_still_fine():
+    assert s.validate_sql('SELECT CUST_NAME AS "العميل" FROM CUST').is_safe
+
+
+@pytest.mark.parametrize("sql", ["SELECT * FROM ITEMS", "SELECT i.* FROM ITEMS i", "SELECT DISTINCT * FROM ITEMS"])
+def test_star_cannot_hide_a_masked_column(sql):
+    assert not s.validate_sql(sql, masked_columns=["TOTAL_BUYPRICE"]).is_safe
+    assert s.validate_sql(sql).is_safe
+
+
+def test_count_star_and_multiplication_are_not_a_star_select():
+    assert s.validate_sql("SELECT COUNT(*) FROM ITEMS", masked_columns=["TOTAL_BUYPRICE"]).is_safe
+    assert s.validate_sql("SELECT SELLPRICE * 2 AS X FROM ITEMS", masked_columns=["TOTAL_BUYPRICE"]).is_safe
+
+
+def test_a_query_the_structure_check_cannot_analyse_is_refused(monkeypatch):
+    import security.sql_ast as ast_mod
+    monkeypatch.setattr(ast_mod, "validate_sql_ast", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
+    assert not s.validate_sql("SELECT CUST_NAME FROM CUST").is_safe
+
+
+def test_model_written_company_predicate_cannot_replace_the_real_scope():
+    from security.query_policy import _already_filtered
+    assert not _already_filtered("WHERE c.COMPANY_CODE = 2 OR 1=1", "COMPANY_CODE", "c", "CUST", "2")
+    assert not _already_filtered("WHERE COMPANY_CODE BETWEEN 1 AND 9", "COMPANY_CODE", "", "CUST", "2")
+    assert _already_filtered("WHERE c.COMPANY_CODE = 2", "COMPANY_CODE", "c", "CUST", "2")

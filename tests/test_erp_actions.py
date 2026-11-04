@@ -509,3 +509,76 @@ def test_a_collection_without_a_customer_id_is_flagged_incomplete():
     action, params = planner.detect_action_intent("سجل سند قبض من العميل أحمد مبلغ 500")
     plan = planner.plan_action(action, params, user_id="u")
     assert "cust_id" in plan.validation_errors
+
+
+# ── audit fixes ────────────────────────────────────────────────────────
+async def test_a_second_worker_with_a_stale_cache_cannot_run_a_claimed_plan(fake_dml):
+    plan = planned()
+    stale = store.get_action(plan.id)                  # this worker still believes it is PLANNED
+    await executor.confirm_and_execute(plan.id, "u1")
+    store._actions[plan.id] = stale
+    stale.status = ActionStatus.PLANNED.value
+    with pytest.raises(ValueError):
+        await executor.confirm_and_execute(plan.id, "u1")
+    assert len(fake_dml) == 1
+
+
+async def test_an_old_card_cannot_be_confirmed_or_found_by_a_later_yes(fake_dml, monkeypatch):
+    plan = planned()
+    plan.created_at -= store.plan_ttl_seconds() + 5
+    with store._db() as conn:
+        conn.execute("UPDATE ai_action_plans SET created_at = ? WHERE id = ?", (plan.created_at, plan.id))
+    assert store.get_user_pending("u1") is None
+    with pytest.raises(ValueError):
+        await executor.confirm_and_execute(plan.id, "u1")
+    assert fake_dml == []
+
+
+async def test_a_rollback_is_never_the_next_thing_to_undo(fake_dml):
+    plan = planned()
+    plan.current_values = {"SELLPRICE": 180, "ITEMNAME": "x"}
+    await executor.confirm_and_execute(plan.id, "u1")
+    done = store.get_action(plan.id)
+    rb = planner.plan_action("update_item_price", {"itemid": "5", "sellprice": 1}, "u1", "1", "2024")
+    rb.action_type, rb.status, rb.undo_sql, rb.completed_at = "rollback", ActionStatus.COMPLETED.value, "UPDATE X SET A=1", done.completed_at + 10
+    store.save_action(rb)
+    store._actions.clear()
+    assert store.get_last_undoable_action("u1").id == plan.id
+
+
+async def test_a_new_record_keeps_its_generated_id_for_undo(monkeypatch):
+    async def run(sql, params):
+        params["custid"] = 777                          # what the sequence does inside _execute_dml
+        return 1
+
+    async def exists(plan):
+        return None
+
+    monkeypatch.setattr(executor, "_execute_dml", run)
+    monkeypatch.setattr(executor, "validate_record_exists", exists)
+    plan = planned("create_customer", cust_name="عميل اختبار")
+    done = await executor.confirm_and_execute(plan.id, "u1")
+    assert done.parameters.get("custid") == 777
+    assert done.undo_sql and done.undo_params["custid"] == 777
+
+
+async def test_a_no_op_change_offers_no_undo(monkeypatch):
+    async def none(sql, params):
+        return 0
+
+    async def exists(plan):
+        return None
+
+    monkeypatch.setattr(executor, "_execute_dml", none)
+    monkeypatch.setattr(executor, "validate_record_exists", exists)
+    plan = planned()
+    plan.current_values = {"SELLPRICE": 180}
+    done = await executor.confirm_and_execute(plan.id, "u1")
+    assert done.undo_sql == ""
+
+
+def test_undoing_a_deactivation_restores_the_previous_state():
+    plan = planner.plan_action("deactivate_customer", {"custid": "9"}, "u1", "1", "2024")
+    plan.current_values = {"ACTIVE": "0"}
+    sql, params, _ = executor._build_undo_info(plan)
+    assert params["prev_active"] == "0"
