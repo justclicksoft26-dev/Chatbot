@@ -380,12 +380,12 @@ def apply_policy(
 
         if decision.apply_company and table_upper in TENANT_TABLES:
             cond = f"{prefix}COMPANY_CODE = {company_lit}"
-            if not _already_filtered(outer_sql, "COMPANY_CODE", alias, table_name):
+            if not _already_filtered(outer_sql, "COMPANY_CODE", alias, table_name, company_lit):
                 conditions.append(cond)
 
         if decision.apply_fiscal and table_upper in FISCAL_TABLES:
             cond = f"{prefix}FISCAL_YEAR = {fiscal_lit}"
-            if not _already_filtered(outer_sql, "FISCAL_YEAR", alias, table_name):
+            if not _already_filtered(outer_sql, "FISCAL_YEAR", alias, table_name, fiscal_lit):
                 conditions.append(cond)
 
     if not conditions:
@@ -571,15 +571,23 @@ def _strip_subqueries(sql: str) -> str:
     return result
 
 
-def _already_filtered(sql: str, column: str, alias: str, table: str = "") -> bool:
-    """True when `column` of this table is already constrained to a value.
+def _already_filtered(sql: str, column: str, alias: str, table: str = "", literal: str = "") -> bool:
+    """True when `column` of this table is already constrained to exactly the scoped value.
 
-    Matches `col = 5`, `col IN (...)`, `col BETWEEN ...`, either unqualified or
-    qualified with this table's alias/name. A comparison against another column
-    (`a.COMPANY_CODE = b.COMPANY_CODE`) is a join condition, not a tenant filter.
+    With `literal` (the real company / year), only `col = <that value>` counts: a model-written
+    `COMPANY_CODE = 2 OR 1=1`, `BETWEEN`, `IN (...)` or `= (SELECT 2 ...)` is not the caller's scope,
+    so the real condition is still added (and ANDed with the whole WHERE).
+    Without `literal`: any constraint counts (`col = 5`, `IN (...)`, `BETWEEN`); a comparison with another
+    column (`a.COMPANY_CODE = b.COMPANY_CODE`) is a join condition, not a tenant filter.
     """
     qualifiers = [re.escape(q) for q in (alias, table) if q]
     qualifier = rf'(?:(?:{"|".join(qualifiers)})\.|(?<![\w.]))' if qualifiers else r'(?<![\w.])'
+    if literal:
+        # Only a bare top-level `col = value` joined by AND is trusted; with any OR in the query a "present"
+        # predicate may be one branch of an OR that lets other rows through, so the scope is added anyway.
+        if re.search(r'\bOR\b', sql, re.IGNORECASE):
+            return False
+        return bool(re.search(rf'\b{qualifier}{column}\s*=\s*{re.escape(literal)}(?![\w.])', sql, re.IGNORECASE))
     pattern = rf'\b{qualifier}{column}\s*(?:=\s*(?!\s)(?![A-Za-z_]\w*\.[A-Za-z_])|IN\s*\(|BETWEEN\b)'
     return bool(re.search(pattern, sql, re.IGNORECASE))
 

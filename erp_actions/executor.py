@@ -34,6 +34,15 @@ async def confirm_and_execute(action_id: str, user_id: str) -> ActionPlan:
     if plan.user_id and plan.user_id != user_id:
         raise ValueError("لا يمكنك تأكيد إجراء مستخدم آخر")
 
+    if action_store.is_expired(plan):
+        plan.status = ActionStatus.CANCELLED.value
+        action_store.save_action(plan)
+        raise ValueError("انتهت مهلة تأكيد هذا الإجراء — اطلبه من جديد")
+
+    # Claim it atomically: only one confirmation can ever run a given plan
+    if not action_store.claim_for_execution(plan.id):
+        raise ValueError("هذا الإجراء جرى تأكيده أو إلغاؤه بالفعل")
+
     # Mark confirmed
     plan.status = ActionStatus.CONFIRMED.value
     plan.confirmed_at = time.time()
@@ -108,11 +117,22 @@ async def execute_action(plan: ActionPlan) -> ActionPlan:
 
         affected = await _execute_dml(sql, bind_params)
 
+        # Ids generated from a sequence exist only in the bind dict: keep them on the plan so the
+        # success message can show the new code and an undo can find the new record.
+        for key in ("custid", "itemid", "payed_id"):
+            if bind_params.get(key) is not None and not plan.parameters.get(key):
+                plan.parameters[key] = bind_params[key]
+
         plan.status = ActionStatus.COMPLETED.value
         plan.affected_rows = affected
         plan.completed_at = time.time()
         # Store undo info while current_values (pre-exec snapshot) is still present
-        _undo_sql, _undo_params, _undo_snap = _build_undo_info(plan)
+        try:
+            # nothing changed -> nothing to undo (an undo of a no-op would overwrite newer data)
+            _undo_sql, _undo_params, _undo_snap = _build_undo_info(plan) if affected else ("", {}, {})
+        except Exception as undo_exc:            # the change is already committed: never report it as failed
+            log.warning("[EXECUTOR] undo info failed for %s: %s", plan.id, undo_exc)
+            _undo_sql, _undo_params, _undo_snap = "", {}, {}
         plan.undo_sql      = _undo_sql
         plan.undo_params   = _undo_params
         plan.undo_snapshot = _undo_snap
@@ -401,11 +421,12 @@ def _build_undo_info(plan: ActionPlan) -> tuple[str, dict, dict]:
         )
 
     elif at in ("deactivate_customer", "deactivate_supplier"):
-        # Reactivate the record (set ACTIVE back to '1')
+        # Put ACTIVE back to what it was before (a record that was already inactive stays inactive)
+        before = str(cv.get("ACTIVE") if cv.get("ACTIVE") is not None else "1")
         return (
-            "UPDATE CUST SET ACTIVE = '1' "
+            "UPDATE CUST SET ACTIVE = :prev_active "
             "WHERE CUSTID = :custid AND COMPANY_CODE = :company_code",
-            {"custid": p.get("custid"), "company_code": co},
+            {"custid": p.get("custid"), "company_code": co, "prev_active": before},
             cv,
         )
 

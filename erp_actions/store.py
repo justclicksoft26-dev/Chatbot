@@ -26,6 +26,7 @@ Storage
   learning/store.py on first open) makes concurrent reads and writes safe.
 """
 import json
+import os
 import logging
 import sqlite3
 import threading
@@ -222,6 +223,32 @@ def _row_to_plan(row) -> ActionPlan:
 # Public API
 # ═══════════════════════════════════════════════════════════════════
 
+def plan_ttl_seconds() -> int:
+    """How long a card waits for its confirmation. An old card must not be run by a later, unrelated "yes"."""
+    try:
+        return max(30, int(os.getenv("ACTION_PLAN_TTL_SECONDS", "600")))
+    except ValueError:
+        return 600
+
+
+def is_expired(plan: ActionPlan) -> bool:
+    return bool(plan.created_at) and time.time() - plan.created_at > plan_ttl_seconds()
+
+
+def claim_for_execution(action_id: str) -> bool:
+    """Atomically move a plan planned -> confirmed. True for exactly one caller, even across workers:
+    a double click or a retry that reaches another worker finds the row already claimed and gets False."""
+    try:
+        with _db() as conn:
+            cur = conn.execute(
+                "UPDATE ai_action_plans SET status = ?, confirmed_at = ? WHERE id = ? AND status = ?",
+                (ActionStatus.CONFIRMED.value, time.time(), action_id, ActionStatus.PLANNED.value))
+            return cur.rowcount == 1
+    except Exception as e:
+        log.warning("[ACTION_STORE] claim failed (%s): falling back to the in-process check", e)
+        return True
+
+
 def save_action(plan: ActionPlan) -> None:
     """Save or update an action plan in both cache and DB."""
     with _lock:
@@ -318,10 +345,10 @@ def get_user_pending(user_id: str) -> Optional[ActionPlan]:
         with _db() as conn:
             row = conn.execute(
                 """SELECT * FROM ai_action_plans
-                   WHERE user_id = ? AND status = ?
+                   WHERE user_id = ? AND status = ? AND created_at >= ?
                    ORDER BY created_at DESC
                    LIMIT 1""",
-                (user_id, ActionStatus.PLANNED.value),
+                (user_id, ActionStatus.PLANNED.value, time.time() - plan_ttl_seconds()),
             ).fetchone()
         if not row:
             return None
@@ -336,7 +363,7 @@ def get_user_pending(user_id: str) -> Optional[ActionPlan]:
         with _lock:
             for plan in _actions.values():
                 if (plan.user_id == user_id
-                        and plan.status == ActionStatus.PLANNED.value):
+                        and plan.status == ActionStatus.PLANNED.value and not is_expired(plan)):
                     return plan
         return None
 
@@ -437,7 +464,7 @@ def get_last_undoable_action(user_id: str) -> Optional[ActionPlan]:
         with _db() as conn:
             row = conn.execute(
                 """SELECT * FROM ai_action_plans
-                   WHERE user_id = ? AND status = ? AND undo_sql != ''
+                   WHERE user_id = ? AND status = ? AND undo_sql != '' AND action_type != 'rollback'
                    ORDER BY completed_at DESC LIMIT 1""",
                 (user_id, ActionStatus.COMPLETED.value),
             ).fetchone()
@@ -450,6 +477,7 @@ def get_last_undoable_action(user_id: str) -> Optional[ActionPlan]:
                 p for p in _actions.values()
                 if p.user_id == user_id
                 and p.status == ActionStatus.COMPLETED.value
+                and p.action_type != "rollback"
                 and getattr(p, "undo_sql", "")
             ]
             if candidates:
