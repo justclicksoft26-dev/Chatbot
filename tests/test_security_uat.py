@@ -144,3 +144,25 @@ def test_column_diff_flags_a_policy_table_without_the_column():
     from scripts.check_sql_against_db import diff_columns
     lines = diff_columns(set(), {"COMPANY_CODE": {"GHOST"}, "FISCAL_YEAR": set(), "BRANCH_ID": set()}, set(), True)
     assert lines == ["policy says GHOST has COMPANY_CODE, the database does not (queries will fail)"]
+
+
+def keys_mode(method, path, headers, body):
+    """AUTH_MODE=keys: the service key is an administrator, a personal viewer key is not."""
+    key = headers.get("X-API-Key")
+    if key not in ("k", "viewer-key"):
+        return 401, {}
+    if path == "/chat/me":
+        return 200, {"role": "admin" if key == "k" else "viewer"}
+    if path != "/chat/" and key != "k":
+        return 403, {}
+    return 200, {"answer": "لا يمكنني تنفيذ هذا", "sql_generated": "SELECT COUNT(*) FROM CUST"}
+
+
+def test_with_the_service_key_alone_the_admin_route_checks_say_what_is_needed():
+    results = by_id(make(keys_mode))
+    assert results["4.3"][2] == results["4.4"][2] == "WARN" and "--role-key" in results["4.3"][3]
+
+
+def test_admin_routes_are_judged_with_a_non_admin_key_when_one_is_given():
+    results = {r[0]: r for r in make(keys_mode, role_keys={"viewer": "viewer-key"}).run()}
+    assert results["4.3"][2] == results["4.4"][2] == "PASS"
