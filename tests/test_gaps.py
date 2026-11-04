@@ -168,3 +168,9 @@ def test_the_list_is_for_administrators(monkeypatch):
     assert client.get("/chat/gaps").status_code == 403
     body = client.get("/chat/gaps", headers={"X-Admin-Key": "admin-key-123456"}).json()
     assert body["groups"][0]["count"] == 1 and "no_answer" in body["kinds"]
+
+
+async def test_a_result_that_hit_the_query_row_cap_says_there_may_be_more(world):
+    world("SELECT CUST_NAME FROM CUST FETCH FIRST 200 ROWS ONLY", Db(rows=[{"cust_name": str(i)} for i in range(200)]))
+    r = await ask("اعرض كل العملاء")
+    assert "200" in r.answer and "قد توجد" in r.answer

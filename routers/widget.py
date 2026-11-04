@@ -12,6 +12,8 @@ from pipeline import process_question
 from routers.auth import caller_id
 from routers.schemas import ScopeValue
 
+from llm.llm_client import is_rate_limit_error
+
 router = APIRouter(prefix="/api", tags=["widget"])
 
 
@@ -60,6 +62,6 @@ async def widget_chat(req: WidgetRequest, request: Request):
 
     except Exception as e:
         err = str(e)
-        if "429" in err or "rate_limit" in err.lower() or "resourceexhausted" in err.lower():
+        if is_rate_limit_error(err):
             return WidgetResponse(reply="تم تجاوز حد الاستخدام — حاول بعد قليل")
         return WidgetResponse(reply="حدث خطأ — حاول إعادة صياغة السؤال بشكل أوضح.")

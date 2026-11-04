@@ -547,3 +547,11 @@ async def format_answer_async(question: str, data: list, sql: str,
     return await asyncio.to_thread(
         format_answer, question, data, sql, history, truncated, extra_context,
     )
+
+_RATE_LIMIT = re.compile(r"rate[_ ]?limit|resource[_ ]?exhausted|too many requests|\bquota\b"
+                         r"|(?:status|code|error|http)\D{0,4}429\b|\b429\s+(?:too|resource|rate)", re.IGNORECASE)
+
+
+def is_rate_limit_error(err) -> bool:
+    """A provider rate-limit/quota error. A bare "429" is not enough: it can be part of a row id or an ORA message."""
+    return bool(_RATE_LIMIT.search(str(err)))

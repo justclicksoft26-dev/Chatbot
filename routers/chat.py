@@ -25,6 +25,8 @@ from routers.schemas import ScopeValue
 
 log = logging.getLogger("chat")
 
+from llm.llm_client import is_rate_limit_error
+
 router = APIRouter(prefix="/chat", tags=["chat"])
 
 
@@ -161,7 +163,7 @@ async def chat(req: ChatRequest, request: Request):
     except Exception as e:
         logging.error(f"[CHAT] Error: {e}\n{traceback.format_exc()}")
         err = str(e)
-        if "429" in err or "rate_limit" in err.lower() or "resourceexhausted" in err.lower():
+        if is_rate_limit_error(err):
             wait = re.search(r'try again in (\d+m[\d.]+s)', err)
             wait_msg = f" (انتظر {wait.group(1)})" if wait else ""
             raise HTTPException(

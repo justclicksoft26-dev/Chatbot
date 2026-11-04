@@ -259,3 +259,13 @@ async def test_undo_builds_a_pending_rollback_with_snapshot():
     assert result.method == "action" and "سعر البيع" in result.answer and "ITEMID" not in result.answer
     assert result.action_id and result.action_id != original.id
     assert action_store.get_action(result.action_id).action_type == "rollback"
+
+
+def test_entity_hint_drops_punctuation_and_schema_words():
+    import asyncio
+    from nlu import schema_loader
+    asyncio.run(schema_loader.init_schema_context())
+    hint = pipeline._extract_search_entity("حركات الخزينة على رفائع الجيمش؟")
+    assert "رفائع الجيمش" in hint and "؟" not in hint
+    assert pipeline._extract_search_entity("كم عدد الفواتير على مستوى الفروع") == ""
+    assert pipeline._extract_search_entity("اجمالي المبيعات على الفروع هذا الشهر") == ""
