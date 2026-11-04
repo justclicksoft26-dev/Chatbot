@@ -1223,6 +1223,17 @@ async def _execute_llm_controlled(
 
         # Auto-fix: if the SQL failed, ask the LLM once more with the error, the schema and the columns the
         # tables really have (an invented column can only be corrected by something that shows the real ones).
+        if err and not _is_sql_error(err):
+            # The database is unreachable or too slow: rewriting the SQL cannot help, and telling the user to
+            # rephrase would be wrong. Say what happened and keep it out of the unanswered-questions log.
+            log_query(user_id, question, sql, safety, success=False, error=err)
+            log.warning(f"[PIPELINE] database problem, no rewrite attempted | ERR={err[:160]}")
+            return PipelineResult(
+                answer=("تعذّر الوصول لقاعدة البيانات أو أن الاستعلام استغرق وقتاً أطول من المسموح. حاول بعد لحظات."
+                        if is_arabic_q else
+                        "The database is unavailable or the query took too long. Please try again in a moment."),
+                sql="", method="error")
+
         if err:
             _sql_ascii = sql[:400].encode("unicode_escape").decode()
             log.warning(f"[PIPELINE] LLM SQL failed | SQL={_sql_ascii} | ERR={err[:120]}")
@@ -1426,6 +1437,15 @@ def _needs_history_context(intent: Intent, history: list) -> bool:
 
 
 # ── Helpers ────────────────────────────────────────────────────────
+
+_SQL_ERROR = re.compile(r"ORA-00[0-9]{3}|ORA-01(?:722|427|438|476|722|747|790|843|858|861|840|841|847)|DPY-4008", re.IGNORECASE)
+
+
+def _is_sql_error(err: str) -> bool:
+    """An error about the query itself (unknown column, bad syntax, type mismatch): a rewrite can fix it.
+    Timeouts, lost connections and the like are not."""
+    return bool(_SQL_ERROR.search(err or ""))
+
 
 async def _try_execute(sql: str, params: dict = None) -> tuple[list[dict], Optional[str]]:
     """Execute SQL and return (data, error_or_none). Uses cache when available.

@@ -165,3 +165,7 @@ async def test_execute_query_passes_supplied_binds_through(fast, monkeypatch):
     monkeypatch.setattr(db, "_run_query_sync", run)
     await db.execute_query("SELECT 1 FROM T WHERE A = :a AND B = :b", {"a": 5})
     assert seen["sql"] == "SELECT 1 FROM T WHERE A = :a AND B = NULL" and seen["params"] == {"a": 5}
+
+
+def test_an_unknown_column_that_mentions_connection_is_not_retried():
+    assert db._is_transient_error(Exception('ORA-00904: "CONNECTION_ID": invalid identifier')) is False

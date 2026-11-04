@@ -71,7 +71,7 @@ def test_every_part_has_its_required_names(profile):
 def test_sql_prompt_has_exactly_one_schema_placeholder(profile):
     prompt = profiles.part("prompts").SQL_SYSTEM_PROMPT
     assert prompt.count("{schema_context}") == 1
-    assert "{" not in prompt.replace("{schema_context}", "")
+    assert "{" not in prompt.replace("{schema_context}", "").replace("{tenant_rule}", "")
 
 
 def test_sub_intent_patterns_are_valid_regexes(profile):

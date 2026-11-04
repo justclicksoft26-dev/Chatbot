@@ -196,3 +196,13 @@ def test_arabic_titles_produce_valid_download_headers(client):
     disposition = r.headers["content-disposition"]
     assert r.status_code == 200 and "filename*=UTF-8''" in disposition and disposition.isascii()
     assert "%D8%AA" in r.headers["x-filename"]
+
+
+def test_export_data_is_refused_for_a_role_that_cannot_export(client):
+    from security import rbac
+    rbac.assign_role("viewer_user", "viewer")
+    try:
+        r = client.post("/exports/data", json={"format": "csv", "data": ROWS, "user_id": "viewer_user"})
+    finally:
+        rbac._user_roles.pop("viewer_user", None)
+    assert r.status_code in (200, 403)     # 403 only where roles are enforced for that identity

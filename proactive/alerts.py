@@ -112,14 +112,15 @@ class AlertStore:
         self._last_scan: float = 0
         self._scan_count: int = 0
 
-    def update(self, new_alerts: list[Alert]):
-        """Update from a monitor scan. Deduplicates by check_key."""
+    def update(self, new_alerts: list[Alert], resolve_missing: bool = True):
+        """Update from a monitor scan. Deduplicates by check_key.
+        resolve_missing=False keeps alerts that were not re-detected (used when a check failed to run)."""
         with self._lock:
             new_keys = {a.check_key for a in new_alerts}
 
             # Resolve alerts no longer detected
             for key, existing in list(self._active.items()):
-                if key not in new_keys and not existing.resolved:
+                if resolve_missing and key not in new_keys and not existing.resolved:
                     existing.resolved = True
                     self._history.append(existing)
 

@@ -172,3 +172,9 @@ async def test_suggestions_never_read_tables_the_user_may_not_see(setup):
     rbac.assign_role("u1", "warehouse", "1", ["*"])
     r = await ask("اعرض الموظف احمد")
     assert not any("DISTINCT" in c for c in db.calls) and "هل تقصد" not in r.answer
+
+
+def test_not_like_keeps_its_negation():
+    from nlu.name_match import rewrite_name_likes
+    out = rewrite_name_likes("WHERE c.CUST_NAME NOT LIKE '%أحمد%'")
+    assert out.startswith("WHERE TRANSLATE(c.CUST_NAME,") and "NOT LIKE '%احمد%'" in out

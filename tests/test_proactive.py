@@ -250,15 +250,18 @@ async def test_zero_stock_needs_at_least_five_items(rows):
 
 
 async def test_customer_concentration(rows):
-    rows["rows"] = [{"CUST_NAME": "أ", "TOTAL_SALES": 700}, {"CUST_NAME": "ب", "TOTAL_SALES": 100},
-                    {"CUST_NAME": "ج", "TOTAL_SALES": 100}, {"CUST_NAME": "د", "TOTAL_SALES": 100}]
+    rows["rows"] = [{"CUST_NAME": "أ", "TOTAL_SALES": 700, "GRAND_TOTAL": 1000}, {"CUST_NAME": "ب", "TOTAL_SALES": 100, "GRAND_TOTAL": 1000},
+                    {"CUST_NAME": "ج", "TOTAL_SALES": 100, "GRAND_TOTAL": 1000}, {"CUST_NAME": "د", "TOTAL_SALES": 100, "GRAND_TOTAL": 1000}]
     found = await monitor.check_customer_concentration()
     assert found and "أ" in found[0].message
-    rows["rows"] = [{"CUST_NAME": str(i), "TOTAL_SALES": 100} for i in range(10)]
+    rows["rows"] = [{"CUST_NAME": str(i), "TOTAL_SALES": 100, "GRAND_TOTAL": 1000} for i in range(10)]
     assert await monitor.check_customer_concentration() == []
-    rows["rows"] = [{"CUST_NAME": "أ", "TOTAL_SALES": 5}]                       # too few customers to judge
+    # the top 3 hold 60% of the listed ten but only a small part of all sales: not concentration
+    rows["rows"] = [{"CUST_NAME": str(i), "TOTAL_SALES": 100, "GRAND_TOTAL": 100000} for i in range(10)]
     assert await monitor.check_customer_concentration() == []
-    rows["rows"] = [{"CUST_NAME": str(i), "TOTAL_SALES": 0} for i in range(4)]
+    rows["rows"] = [{"CUST_NAME": "أ", "TOTAL_SALES": 5, "GRAND_TOTAL": 5}]       # too few customers to judge
+    assert await monitor.check_customer_concentration() == []
+    rows["rows"] = [{"CUST_NAME": str(i), "TOTAL_SALES": 0, "GRAND_TOTAL": 0} for i in range(4)]
     assert await monitor.check_customer_concentration() == []
 
 
@@ -292,12 +295,13 @@ async def test_daily_activity(rows, monkeypatch, hour, row, key):
     assert [a.check_key for a in await monitor.check_daily_activity()] == ([key] if key else [])
 
 
-async def test_database_errors_in_a_check_mean_no_alerts(monkeypatch):
+async def test_database_errors_in_a_check_are_raised_not_hidden(monkeypatch):
     async def boom(sql, params=None):
         raise RuntimeError("db down")
     monkeypatch.setattr(monitor, "execute_query", boom)
     for check in monitor.ALL_CHECKS:
-        assert await check() == []
+        with pytest.raises(RuntimeError):
+            await check()
 
 
 async def test_monitor_can_be_started_and_stopped(monkeypatch):
@@ -397,3 +401,20 @@ async def test_the_heavy_checks_run_once_an_hour_and_keep_their_alerts_in_betwee
     monkeypatch.setenv("MONITOR_HEAVY_INTERVAL_SECONDS", "0")
     await monitor.run_all_checks()
     assert len(runs) == 2
+
+
+async def test_a_failed_check_does_not_resolve_existing_alerts(monkeypatch):
+    from proactive import monitor
+    from proactive.alerts import alert_store, make_alert
+    alert_store.update([make_alert(category="sales", severity="critical", title="t", message="m", impact="i",
+                                   recommendation="r", value=1, change_pct=-30, check_key="sales_weekly_trend")])
+
+    async def boom():
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(monitor, "ALL_CHECKS", [boom])
+    await monitor.run_all_checks()
+    assert [a for a in alert_store._active.values() if not a.resolved]
+    monkeypatch.setattr(monitor, "ALL_CHECKS", [])
+    await monitor.run_all_checks()
+    assert not [a for a in alert_store._active.values() if not a.resolved]

@@ -166,6 +166,11 @@ def has_bind_variables(sql: str) -> bool:
 def _run_query_sync_on_pool(pool, sql: str, params: dict = None) -> list[dict]:
     """Synchronous query execution on a given pool (runs in thread pool via asyncio)."""
     with pool.acquire() as conn:
+        try:
+            # asyncio.wait_for only stops waiting; without this the query keeps running and holds a pooled connection
+            conn.call_timeout = int(DB_QUERY_TIMEOUT * 1000)
+        except Exception:
+            pass
         with conn.cursor() as cur:
             cur.execute(sql, _only_used_binds(sql, params))
             cols = [d[0].lower() for d in cur.description]
@@ -194,7 +199,7 @@ def _is_transient_error(e: Exception) -> bool:
         "ora-25408",  # can not safely replay
         "dpy-4011",   # the database or network closed the connection
         "dpy-4027",   # no connection to the database
-        "connection",
+        "connection reset", "connection closed", "connection refused", "connection lost",
         "broken pipe",
         "timed out",
     ]
@@ -218,9 +223,7 @@ async def execute_query(sql: str, params: dict = None) -> list[dict]:
         except asyncio.TimeoutError:
             log.warning(f"[DB] Query timeout ({DB_QUERY_TIMEOUT}s), attempt {attempt+1}: {sql[:100]}...")
             last_err = TimeoutError(f"انتهت مهلة الاستعلام ({DB_QUERY_TIMEOUT} ثانية)")
-            if attempt < DB_MAX_RETRIES:
-                await asyncio.sleep(DB_RETRY_BASE_DELAY * (2 ** attempt))
-                continue
+            raise last_err        # a slow query is not retried: it would only run three times as long
         except Exception as e:
             if _is_transient_error(e) and attempt < DB_MAX_RETRIES:
                 delay = DB_RETRY_BASE_DELAY * (2 ** attempt)
@@ -279,9 +282,7 @@ async def execute_read_query(sql: str, params: dict = None) -> list[dict]:
                 DB_QUERY_TIMEOUT, attempt + 1, sql[:100],
             )
             last_err = TimeoutError(f"انتهت مهلة الاستعلام ({DB_QUERY_TIMEOUT} ثانية)")
-            if attempt < DB_MAX_RETRIES:
-                await asyncio.sleep(DB_RETRY_BASE_DELAY * (2 ** attempt))
-                continue
+            raise last_err        # a slow query is not retried: it would only run three times as long
         except Exception as e:
             if _is_transient_error(e) and attempt < DB_MAX_RETRIES:
                 delay = DB_RETRY_BASE_DELAY * (2 ** attempt)

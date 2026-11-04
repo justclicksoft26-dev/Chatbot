@@ -28,15 +28,15 @@ async def check_sales_trend() -> list[Alert]:
     """Compare last 7 days sales with previous 7 days."""
     sql = (
         "SELECT "
-        "NVL(SUM(CASE WHEN TRUNC(INVDATE) >= TRUNC(SYSDATE) - 7 "
+        "NVL(SUM(CASE WHEN TRUNC(INVDATE) >= TRUNC(SYSDATE) - 6 "
         "  THEN FINALTOTAL ELSE 0 END), 0) AS CURRENT_WEEK, "
-        "NVL(SUM(CASE WHEN TRUNC(INVDATE) >= TRUNC(SYSDATE) - 14 "
-        "  AND TRUNC(INVDATE) < TRUNC(SYSDATE) - 7 "
+        "NVL(SUM(CASE WHEN TRUNC(INVDATE) >= TRUNC(SYSDATE) - 13 "
+        "  AND TRUNC(INVDATE) < TRUNC(SYSDATE) - 6 "
         "  THEN FINALTOTAL ELSE 0 END), 0) AS PREV_WEEK, "
-        "COUNT(CASE WHEN TRUNC(INVDATE) >= TRUNC(SYSDATE) - 7 THEN 1 END) AS CUR_COUNT "
+        "COUNT(CASE WHEN TRUNC(INVDATE) >= TRUNC(SYSDATE) - 6 THEN 1 END) AS CUR_COUNT "
         "FROM MAIN_INV "
         "WHERE INVTYPE = 0 AND RETURN_FLAG = 0 "
-        "AND TRUNC(INVDATE) >= TRUNC(SYSDATE) - 14 "
+        "AND TRUNC(INVDATE) >= TRUNC(SYSDATE) - 13 "
         "FETCH FIRST 1 ROWS ONLY"
     )
     alerts = []
@@ -78,7 +78,8 @@ async def check_sales_trend() -> list[Alert]:
                     value=current, change_pct=change, check_key="sales_weekly_trend",
                 ))
     except Exception as e:
-        log.debug(f"check_sales_trend: {e}")
+        log.warning(f"check_sales_trend: {e}")
+        raise                      # a failed check must not look like "nothing found" (it would resolve its alerts)
     return alerts
 
 
@@ -118,7 +119,8 @@ async def check_overdue_receivables() -> list[Alert]:
                 value=total, check_key="overdue_receivables",
             ))
     except Exception as e:
-        log.debug(f"check_overdue_receivables: {e}")
+        log.warning(f"check_overdue_receivables: {e}")
+        raise                      # a failed check must not look like "nothing found" (it would resolve its alerts)
     return alerts
 
 
@@ -175,7 +177,8 @@ async def check_low_inventory() -> list[Alert]:
                 value=count, check_key="low_inventory",
             ))
     except Exception as e:
-        log.debug(f"check_low_inventory: {e}")
+        log.warning(f"check_low_inventory: {e}")
+        raise                      # a failed check must not look like "nothing found" (it would resolve its alerts)
     return alerts
 
 
@@ -198,7 +201,8 @@ async def check_zero_stock() -> list[Alert]:
                 value=count, check_key="zero_stock",
             ))
     except Exception as e:
-        log.debug(f"check_zero_stock: {e}")
+        log.warning(f"check_zero_stock: {e}")
+        raise                      # a failed check must not look like "nothing found" (it would resolve its alerts)
     return alerts
 
 
@@ -209,7 +213,8 @@ async def check_zero_stock() -> list[Alert]:
 async def check_customer_concentration() -> list[Alert]:
     """Detect over-dependence on few customers (last 3 months)."""
     sql = (
-        "SELECT cu.CUST_NAME, SUM(m.FINALTOTAL) AS TOTAL_SALES "
+        "SELECT cu.CUST_NAME, SUM(m.FINALTOTAL) AS TOTAL_SALES, "
+        "SUM(SUM(m.FINALTOTAL)) OVER () AS GRAND_TOTAL "
         "FROM MAIN_INV m "
         "JOIN CUST cu ON cu.CUSTID = m.CUST_ID AND cu.CUST_TYPE = m.CUST_TYPE "
         "WHERE m.INVTYPE = 0 AND m.RETURN_FLAG = 0 "
@@ -223,7 +228,7 @@ async def check_customer_concentration() -> list[Alert]:
         data = await execute_query(sql)
         if not data or len(data) < 3:
             return []
-        total = sum(float(r.get("TOTAL_SALES", 0) or 0) for r in data)
+        total = float(data[0].get("GRAND_TOTAL", 0) or 0)       # all customers, not just the top 10 listed
         if total == 0:
             return []
 
@@ -242,7 +247,8 @@ async def check_customer_concentration() -> list[Alert]:
                 value=top3_pct, check_key="customer_concentration",
             ))
     except Exception as e:
-        log.debug(f"check_customer_concentration: {e}")
+        log.warning(f"check_customer_concentration: {e}")
+        raise                      # a failed check must not look like "nothing found" (it would resolve its alerts)
     return alerts
 
 
@@ -257,7 +263,7 @@ async def check_expense_trend() -> list[Alert]:
         "NVL(SUM(CASE WHEN v.VOUCHER_DATE >= TRUNC(SYSDATE, 'MM') "
         "  THEN vd.AMOUNT ELSE 0 END), 0) AS CURRENT_MONTH, "
         "NVL(SUM(CASE WHEN v.VOUCHER_DATE >= ADD_MONTHS(TRUNC(SYSDATE, 'MM'), -1) "
-        "  AND v.VOUCHER_DATE < TRUNC(SYSDATE, 'MM') "
+        "  AND v.VOUCHER_DATE < ADD_MONTHS(TRUNC(SYSDATE) + 1, -1) "      # same days of the month, so a part-month is not compared with a whole one
         "  THEN vd.AMOUNT ELSE 0 END), 0) AS PREV_MONTH "
         "FROM VOUCHERS_DET vd "
         "JOIN VOUCHERS v ON v.VOUCHER_CODE = vd.VOUCHER_CODE "
@@ -288,7 +294,8 @@ async def check_expense_trend() -> list[Alert]:
                     value=current, change_pct=change, check_key="expense_trend",
                 ))
     except Exception as e:
-        log.debug(f"check_expense_trend: {e}")
+        log.warning(f"check_expense_trend: {e}")
+        raise                      # a failed check must not look like "nothing found" (it would resolve its alerts)
     return alerts
 
 
@@ -343,7 +350,8 @@ async def check_daily_activity() -> list[Alert]:
                     value=today, change_pct=change, check_key="daily_low_sales",
                 ))
     except Exception as e:
-        log.debug(f"check_daily_activity: {e}")
+        log.warning(f"check_daily_activity: {e}")
+        raise                      # a failed check must not look like "nothing found" (it would resolve its alerts)
     return alerts
 
 
@@ -380,6 +388,7 @@ async def run_all_checks() -> list[Alert]:
     """Execute all monitoring checks and update the alert store."""
     start = time.time()
     all_alerts = []
+    failed = []
 
     for check_fn in ALL_CHECKS:
         name = check_fn.__name__
@@ -393,9 +402,11 @@ async def run_all_checks() -> list[Alert]:
             all_alerts.extend(alerts)
         except Exception as e:
             log.warning(f"[MONITOR] {name} failed: {e}")
+            failed.append(name)
 
-    # Update global store (handles dedup + resolve)
-    alert_store.update(all_alerts)
+    # Update global store (dedup; alerts are resolved only when every check ran, since a check that
+    # failed says nothing about the alerts it owns)
+    alert_store.update(all_alerts, resolve_missing=not failed)
 
     # Persist alerts to DB for crash recovery
     alert_store.persist_to_db()

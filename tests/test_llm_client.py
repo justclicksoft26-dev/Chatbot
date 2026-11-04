@@ -95,7 +95,7 @@ def test_trim_history_keeps_newest_within_budget_and_starts_with_user():
     assert llm._trim_history(None, 100) == []
 
 
-def test_generate_sql_builds_prompt_and_strips_tenant_filters(monkeypatch):
+def test_generate_sql_builds_prompt_and_keeps_the_models_filters(monkeypatch):
     seen = {}
 
     def fake(messages, temperature, max_tokens):
@@ -105,7 +105,8 @@ def test_generate_sql_builds_prompt_and_strips_tenant_filters(monkeypatch):
     monkeypatch.setattr(llm, "_call_llm", fake)
     history = [{"role": "user", "content": "سؤال سابق"}, {"role": "assistant", "content": "رد سابق"}]
     sql = llm.generate_sql("SCHEMA-CTX", "كم عميل؟", "1", "2024", history=history, extra_context="HINT")
-    assert "COMPANY_CODE" not in sql and "CUST_TYPE = 0" in sql
+    # stripping (when tenant scope is on) is prepare_sql's job; with it off a requested year must survive
+    assert "COMPANY_CODE = '1'" in sql and "CUST_TYPE = 0" in sql
     system = seen["messages"][0]["content"]
     assert "SCHEMA-CTX" in system and "{schema_context}" not in system and "HINT" in system
     assert [m["role"] for m in seen["messages"]] == ["system", "user", "assistant", "user"]
