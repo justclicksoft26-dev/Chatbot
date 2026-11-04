@@ -113,3 +113,12 @@ def test_filename_is_sanitised():
 def test_unknown_format_raises():
     with pytest.raises(ValueError):
         generate_export(_req("docx"))
+
+
+def test_csv_title_filters_and_headers_cannot_carry_a_formula():
+    from reporting.export_engine import export_csv, ExportRequest
+    req = ExportRequest(format="csv", title="t\n=HYPERLINK(\"http://x\")", filters={"a": "1\n=cmd"},
+                        data=[{"=cmd|' /C calc'!A0": "x", "ok": "+1+1"}])
+    text = export_csv(req)[0].decode("utf-8")
+    for line in text.splitlines():
+        assert not line.startswith(("=", "+", "-", "@")), line

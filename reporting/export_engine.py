@@ -113,18 +113,20 @@ def export_csv(req: ExportRequest) -> tuple[bytes, str]:
 
     # Header comment
     if req.title:
-        output.write(f"# {req.title}\n")
+        output.write(f"# {_one_line(req.title)}\n")
     output.write(f"# تاريخ التصدير: {_now_str()}\n")
     if req.filters:
         filters_str = ", ".join(f"{k}={v}" for k, v in req.filters.items())
-        output.write(f"# الفلاتر: {filters_str}\n")
+        output.write(f"# الفلاتر: {_one_line(filters_str)}\n")
     output.write("\n")
 
     # Data rows
-    writer = csv.DictWriter(output, fieldnames=_columns(req.data))
+    cols = _columns(req.data)
+    headers = {c: _safe_cell(str(c)) for c in cols}            # a column name can start with = + - @ too
+    writer = csv.DictWriter(output, fieldnames=[headers[c] for c in cols])
     writer.writeheader()
     for row in req.data:
-        writer.writerow({k: _safe_cell(v) for k, v in row.items()})
+        writer.writerow({headers[c]: _safe_cell(row.get(c)) for c in cols})
 
     content = output.getvalue().encode("utf-8")
     return content, _filename(req.title, "csv")
@@ -391,6 +393,11 @@ def generate_export(req: ExportRequest) -> tuple:
 
 _FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
 _ILLEGAL_XML = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+
+
+def _one_line(text) -> str:
+    """Comment lines of a CSV must stay one line: a newline would start a line the spreadsheet reads as a formula."""
+    return re.sub(r"[\r\n]+", " ", str(text))
 
 
 def _safe_cell(value):

@@ -53,6 +53,10 @@ class ExportDataRequest(BaseModel):
     filters: dict = {}
     kpis: list[dict] = []
     summary: str = ""
+    user_id: str = "web_user"
+
+
+MAX_EXPORT_ROWS = 50000
 
 
 class ExecutiveReportRequest(BaseModel):
@@ -69,13 +73,18 @@ class ExecutiveReportRequest(BaseModel):
 # ══════════════════════════════════════════════════════════════════
 
 @router.post("/data")
-async def export_data(req: ExportDataRequest):
+async def export_data(req: ExportDataRequest, request: Request):
     """
     Export data in the specified format.
     Returns file bytes with appropriate content type.
     """
+    user_id = caller_id(request, req.user_id)
+    if not _may_export(user_id):
+        raise HTTPException(status_code=403, detail="التصدير غير متاح لصلاحيتك.")
     if not req.data:
         raise HTTPException(status_code=400, detail="لا توجد بيانات للتصدير.")
+    if len(req.data) > MAX_EXPORT_ROWS:
+        raise HTTPException(status_code=413, detail=f"أكثر من {MAX_EXPORT_ROWS} صف — صفّ البيانات قبل التصدير.")
 
     valid_formats = [ExportFormat.PDF, ExportFormat.EXCEL, ExportFormat.CSV, ExportFormat.JSON]
     if req.format not in valid_formats:
