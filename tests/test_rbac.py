@@ -219,3 +219,18 @@ def test_parentheses_inside_a_text_literal_do_not_confuse_the_branch_restriction
     finally:
         rbac._user_roles.pop("branch5", None)
     assert out.count("BRANCH_ID IN") == 1
+
+
+def test_the_service_key_may_use_every_company(monkeypatch):
+    monkeypatch.setenv("API_KEY", "service-key-123456")
+    monkeypatch.setattr(rbac, "_AUTH_MODE", "keys")
+    assert rbac.identity_from_key("service-key-123456") == rbac.MASTER_USER
+    from security import company_manager
+    import asyncio
+    assert asyncio.run(company_manager.validate_company_access(rbac.MASTER_USER, "7"))
+    rbac._user_roles.pop(rbac.MASTER_USER, None)
+
+
+def test_a_token_without_a_company_uses_the_databases_default(monkeypatch):
+    monkeypatch.setenv("DEFAULT_COMPANY_CODE", "4")
+    assert rbac._default_company() == "4"

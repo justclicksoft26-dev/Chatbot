@@ -296,7 +296,7 @@ def verify_token(token: str) -> Optional[dict]:
         return {
             "user_id":      str(payload["sub"]),
             "role":         role,
-            "company_code": str(payload.get("company", "1")),
+            "company_code": str(payload.get("company") or _default_company()),
             "branches":     [str(b) for b in branches] if isinstance(branches, list) else [],
         }
 
@@ -340,6 +340,12 @@ class AuthenticationRequired(Exception):
 MASTER_USER = "master"
 
 
+def _default_company() -> str:
+    """The company of this database when a key or token does not name one (DEFAULT_COMPANY_CODE, else 1)."""
+    from infra.settings import default_company
+    return default_company()
+
+
 def identity_from_request(headers: dict) -> str:
     """AUTH_MODE=keys: who is calling.
 
@@ -362,11 +368,11 @@ def identity_from_key(key: str) -> str:
     from security import users
     record = users.authenticate(key)
     if record:
-        assign_role(record["user_id"], record["role"], record.get("company_code", "1"), record.get("branches", []))
+        assign_role(record["user_id"], record["role"], record.get("company_code") or _default_company(), record.get("branches", []))
         return record["user_id"]
     master = os.getenv("API_KEY", "").strip()
     if master and key and hmac.compare_digest(key.encode(), master.encode()):
-        assign_role(MASTER_USER, "admin")
+        assign_role(MASTER_USER, "admin", "*", ["*"])            # the service key owns the installation: every company
         return MASTER_USER
     raise AuthenticationRequired("a valid personal key is required")
 
