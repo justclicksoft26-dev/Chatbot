@@ -302,6 +302,10 @@ def plan_action(
     if action_def.risk_level in (ActionRisk.HIGH.value, ActionRisk.CRITICAL.value):
         warnings.append("هذا الإجراء مالي ولا يمكن التراجع عنه")
 
+    if action_def.disabled_reason:
+        missing = list(missing) + [action_def.disabled_reason]
+        warnings.append(action_def.disabled_reason)
+
     plan = ActionPlan(
         action_type=action_type,
         status=ActionStatus.PLANNED.value,

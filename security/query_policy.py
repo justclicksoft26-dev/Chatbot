@@ -97,14 +97,14 @@ TENANT_TABLES = {
     "TRANSACTION", "TRANSACTION_TOT",
     "VOUCHERS", "VOUCHERS_DET",
     "EMPLOYEES", "EMPLOYEE_SALARIES", "ATT_EMP",
-    "EMP_VACATION", "EMP_LOANS", "PAYED", "MAIN_INV_PAYED",
+    "EMP_VACATION", "EMP_LOANS",          # PAYED / MAIN_INV_PAYED have no COMPANY_CODE column (checked against the database)
     "ITEM_CARD", "CHARTS",
 }
 
 # Tables that have FISCAL_YEAR column
 FISCAL_TABLES = {
     "MAIN_INV", "DETAIL_INV", "VOUCHERS", "VOUCHERS_DET",
-    "TRANSACTION", "TRANSACTION_TOT", "PAYED", "MAIN_INV_PAYED", "CHARTS",
+    "TRANSACTION", "TRANSACTION_TOT", "MAIN_INV_PAYED", "CHARTS",       # PAYED has no FISCAL_YEAR column
 }
 
 # Reference/config tables (NEVER get any tenant filter)

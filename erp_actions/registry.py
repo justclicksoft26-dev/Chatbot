@@ -23,6 +23,7 @@ class ActionDef:
     param_labels: dict = field(default_factory=dict)  # param -> Arabic label
     validation_sql: str = ""     # Pre-exec check (must return 0 rows to proceed)
     needs_sequence: str = ""     # Oracle sequence for new ID generation
+    disabled_reason: str = ""    # non-empty: the action cannot run yet (shown instead of planning it)
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -290,6 +291,7 @@ _reg(ActionDef(
 _reg(ActionDef(
     action_type=ActionType.CREATE_PAYMENT,
     target_table="PAYED",
+    disabled_reason="غير متاح بعد: جدول PAYED في قاعدتك لا يحوي كود الشركة/السنة ويشترط SDAD_TRANS_TYPE وتسلسلاً غير موجود — يحتاج تعريفاً من المحاسب",
     operation="INSERT",
     risk_level=ActionRisk.HIGH.value,
     required_params=["cust_id", "payed_amount"],
@@ -317,6 +319,7 @@ _reg(ActionDef(
 _reg(ActionDef(
     action_type=ActionType.CREATE_COLLECTION,
     target_table="PAYED",
+    disabled_reason="غير متاح بعد: جدول PAYED في قاعدتك لا يحوي كود الشركة/السنة ويشترط SDAD_TRANS_TYPE وتسلسلاً غير موجود — يحتاج تعريفاً من المحاسب",
     operation="INSERT",
     risk_level=ActionRisk.HIGH.value,
     required_params=["cust_id", "payed_amount"],
@@ -348,6 +351,7 @@ _reg(ActionDef(
 _reg(ActionDef(
     action_type=ActionType.APPROVE_REQUEST,
     target_table="AI_ACTION_REQUESTS",
+    disabled_reason="غير متاح بعد: جدول AI_ACTION_REQUESTS غير موجود في القاعدة",
     operation="UPDATE",
     risk_level=ActionRisk.HIGH.value,
     required_params=["request_id"],
@@ -371,6 +375,7 @@ _reg(ActionDef(
 _reg(ActionDef(
     action_type=ActionType.REJECT_REQUEST,
     target_table="AI_ACTION_REQUESTS",
+    disabled_reason="غير متاح بعد: جدول AI_ACTION_REQUESTS غير موجود في القاعدة",
     operation="UPDATE",
     risk_level=ActionRisk.MEDIUM.value,
     required_params=["request_id"],

@@ -582,3 +582,16 @@ def test_undoing_a_deactivation_restores_the_previous_state():
     plan.current_values = {"ACTIVE": "0"}
     sql, params, _ = executor._build_undo_info(plan)
     assert params["prev_active"] == "0"
+
+
+def test_actions_that_cannot_run_on_this_database_are_not_confirmable():
+    plan = planner.plan_action("create_payment", {"cust_id": "1", "amount": 5}, "u1", "1", "2024")
+    assert plan.validation_errors and "غير متاح" in " ".join(plan.validation_errors)
+    ok = planner.plan_action("update_item_price", {"itemid": "5", "sellprice": 250}, "u1", "1", "2024")
+    assert not ok.validation_errors
+
+
+async def test_a_disabled_action_is_refused_at_confirmation(fake_dml):
+    plan = planned("create_payment", cust_id="1", amount=5)
+    done = await executor.confirm_and_execute(plan.id, "u1")
+    assert done.status == ActionStatus.FAILED.value and fake_dml == []
