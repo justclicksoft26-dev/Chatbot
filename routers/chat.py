@@ -248,6 +248,11 @@ async def export_history(request: Request, user_id: str = "web_user"):
     if not session.turns:
         raise HTTPException(status_code=404, detail="لا توجد محادثات لتصديرها")
 
+    perms = _rbac.get_user_permissions(user_id)
+    if not perms.can_export and not has_admin_key(request):
+        raise HTTPException(status_code=403, detail="تصدير المحادثة غير متاح لصلاحيتك")
+    show_sql = perms.can_view_sql or has_admin_key(request)
+
     output = io.StringIO()
     output.write('﻿')  # UTF-8 BOM for Excel
     writer = csv.writer(output)
@@ -259,7 +264,7 @@ async def export_history(request: Request, user_id: str = "web_user"):
         writer.writerow([
             "مستخدم" if turn.role == "user" else "مساعد",
             turn.content[:500],
-            turn.sql,
+            turn.sql if show_sql else "",
             turn.row_count,
             ts,
         ])

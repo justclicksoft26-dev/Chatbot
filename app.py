@@ -7,6 +7,10 @@ import time
 import logging
 import asyncio
 
+from dotenv import load_dotenv
+
+load_dotenv()          # before any project import: security.rbac reads AUTH_MODE / JWT_SECRET when it is imported
+
 from pathlib import Path
 from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError

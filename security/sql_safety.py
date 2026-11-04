@@ -126,6 +126,17 @@ def _strip_string_literals(sql: str) -> str:
     return re.sub(r"'(?:[^']|'')*'", "''", sql)
 
 
+_OPAQUE_TABLE_FORMS = (
+    (re.compile(r'\b(?:FROM|JOIN)\s*"', re.IGNORECASE), "Quoted table names are not allowed"),
+    (re.compile(r'\b(?:FROM|JOIN)\s+[A-Za-z_][\w$#]*\s*\.\s*[A-Za-z_"]', re.IGNORECASE),
+     "Schema-qualified table names are not allowed"),
+    (re.compile(r'@\s*[A-Za-z_"]'), "Database links are not allowed"),
+    (re.compile(r',\s*"[^"]+"\s*(?:,\s*"[^"]+"\s*)*(?:WHERE|JOIN|GROUP|ORDER|FETCH|UNION|\)|$)', re.IGNORECASE),
+     "Quoted table names are not allowed"),
+)
+_STAR_IN_SELECT = re.compile(r"(?:\bSELECT(?:\s+DISTINCT)?|,)\s*(?:[A-Za-z_][\w$#]*\s*\.\s*)?\*", re.IGNORECASE)
+
+
 def validate_sql(sql: str, masked_columns: list = None, max_rows: int = None) -> SafetyResult:
     """
     Validate SQL for safety before execution.
@@ -160,6 +171,20 @@ def validate_sql(sql: str, masked_columns: list = None, max_rows: int = None) ->
                 warnings=[],
                 blocked_reason=reason,
             )
+
+    # ── Table names must be plain: the allowlist, domain and company checks read table names with
+    #    identifier patterns, so a quoted ("EMPLOYEES"), schema-qualified (SYS.X) or linked (T@db) name would
+    #    slip past every one of them. The model never needs these forms. ──
+    for pattern, reason in _OPAQUE_TABLE_FORMS:
+        if pattern.search(sql_for_scan):
+            return SafetyResult(is_safe=False, sql=cleaned, warnings=[], blocked_reason=reason)
+
+    # ── A masked column cannot be hidden behind SELECT * / alias.* ──
+    if masked_columns and _STAR_IN_SELECT.search(sql_for_scan):
+        return SafetyResult(
+            is_safe=False, sql=cleaned, warnings=[],
+            blocked_reason="SELECT * is not allowed for your role: name the columns you need",
+        )
 
     # ── Smart UNION ALL check ──
     if _is_union_injection(cleaned):
@@ -223,15 +248,11 @@ def validate_sql(sql: str, masked_columns: list = None, max_rows: int = None) ->
         # AST parser raised unexpectedly — DO NOT silently discard.
         # Crafted input that crashes the parser is inherently suspicious;
         # log it at WARNING so operators can see it in the audit trail.
-        # The query is still allowed through because:
-        #   (a) regex + DML-keyword check already passed above, and
-        #   (b) if DB_READ_USER is configured, Oracle itself blocks DML.
-        warnings.append(f"AST_PARSE_ERROR({type(_ast_exc).__name__})")
-        log.warning(
-            "[SAFETY] AST validation raised %s (len=%d) — "
-            "falling through without structural analysis.",
-            type(_ast_exc).__name__, len(cleaned),
-        )
+        # The table allowlist and column masking live in this stage, so a query it could not analyse is refused.
+        log.warning("[SAFETY] AST validation raised %s (len=%d) — query refused",
+                    type(_ast_exc).__name__, len(cleaned))
+        return SafetyResult(is_safe=False, sql=cleaned, warnings=[],
+                            blocked_reason=f"Could not analyse the query structure ({type(_ast_exc).__name__})")
 
     return SafetyResult(
         is_safe=True,
