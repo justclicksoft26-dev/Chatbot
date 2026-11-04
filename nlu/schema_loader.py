@@ -7,6 +7,7 @@ schema_loader.py
 1. get_schema_context() — كل الجداول (للـ startup فقط)
 2. get_relevant_schema(question) — جداول مختارة بناءً على السؤال (للـ chat)
 """
+import math
 import re
 import os
 import logging
@@ -214,7 +215,7 @@ def get_schema_debug_info(question: str = "") -> dict:
     schema_ctx_len = 0
 
     if question.strip():
-        q_tokens = _comment_tokens(question)
+        q_tokens = _comment_tokens(question, expand=True)
         for t, toks in idx.items():
             if t in blocked:
                 continue
@@ -349,6 +350,7 @@ _blocked_tables_mtime: float = -1.0
 # share a token with any question that contains "على" (e.g. "حركات الخزينة
 # على رفائع الجيمش" → VOUCHERS matched only on "على" → wrong primary table).
 _COMMENT_STOPWORDS: frozenset[str] = frozenset({
+    'اعرض', 'عرض', 'اعطني', 'اظهر', 'وريني', 'ابغي', 'اريد', 'جميع',   # words of asking, not of the business
     'علي',   # على  — on/upon
     'الي',   # إلى  — to/toward
     'عبر',   # عبر  — across/via
@@ -364,7 +366,10 @@ _COMMENT_STOPWORDS: frozenset[str] = frozenset({
 })
 
 
-def _comment_tokens(text: str) -> set[str]:
+_CLITICS = 'بلوفك'            # one-letter prefixes glued to a word: بالمخازن، للعملاء، والفواتير، فالمبيعات، كالعادة
+
+
+def _comment_tokens(text: str, expand: bool = False) -> set[str]:
     """Normalized Arabic/Latin domain words (≥3 chars) from a comment string.
 
     Common Arabic grammatical words (prepositions, determiners) are filtered
@@ -373,10 +378,25 @@ def _comment_tokens(text: str) -> set[str]:
     out: set[str] = set()
     # Letters only: the U+0600–06FF block also holds ؟ ، ؛ — left in, "المخازن؟" never
     # matches the comment word "المخازن" and every question ending in ؟ loses its table.
-    for w in re.findall(r'[ء-يٱ-ۓA-Za-z]+', text or ''):
+    for w in re.findall(r'[ء-ٟٱ-ۓA-Za-z]+', text or ''):
         n = _normalize_concept(w)
         if len(n) >= 3 and n not in _COMMENT_STOPWORDS:
             out.add(n)
+        if expand:
+            # A word typed in a question may carry a prefix the comment's word does not ("للعملاء" vs "العملاء").
+            # The stripped forms are added next to the word itself, never instead of it.
+            variants = []
+            base = re.sub(r'[أإآٱ]', 'ا', w)
+            if base.startswith('لل') and len(base) > 4:
+                variants.append('ال' + base[2:])
+            if base[:1] in _CLITICS and len(base) >= 5:
+                variants.append(base[1:])
+            if base.startswith('وبال') or base.startswith('ولل'):
+                variants.append(base[2:] if base.startswith('وبال') else 'ال' + base[3:])
+            for v in variants:
+                nv = _normalize_concept(v)
+                if len(nv) >= 3 and nv not in _COMMENT_STOPWORDS:
+                    out.add(nv)
     return out
 
 
@@ -462,7 +482,7 @@ def _select_tables_tiered(question: str, allowed_tables: "set | None" = None) ->
         blocked = blocked | (all_known - set(allowed_tables))
     idx = _get_table_tokens()
 
-    q_tokens = _comment_tokens(question)
+    q_tokens = _comment_tokens(question, expand=True)
 
     # ── Direct table-name mention: if the question explicitly contains a known
     # table name as a whole word, force-include it regardless of comment-token
@@ -479,8 +499,20 @@ def _select_tables_tiered(question: str, allowed_tables: "set | None" = None) ->
     # so MAIN_INV (M) is processed before TRANSACTION (T) and VOUCHERS (V)
     # when all have the same token overlap — this ensures the more canonical ERP
     # tables get full descriptions before the budget is exhausted.
+    # A word found in many table comments ("رصيد", "اجمالي") says little about which table is meant; a word found
+    # in one or two says a lot. Weighting each shared word by how rare it is across the comments (IDF) ranks
+    # the table that really owns the concept first, instead of whichever sorts first alphabetically.
+    n_tables = max(1, len(idx))
+    df: dict[str, int] = {}
+    for toks in idx.values():
+        for tok in toks:
+            df[tok] = df.get(tok, 0) + 1
+
+    def _weight(shared: set) -> float:
+        return sum(math.log((n_tables + 1) / (df.get(tok, 1) + 0.5)) + 1.0 for tok in shared)
+
     scored = sorted(
-        ((-len(q_tokens & toks), t) for t, toks in idx.items()
+        ((-_weight(q_tokens & toks), t) for t, toks in idx.items()
          if (q_tokens & toks) and t not in blocked),
     )
     scored_tables = [t for _, t in scored[:_MAX_PRIMARY]]
@@ -555,7 +587,7 @@ def table_scores(question: str) -> dict[str, int]:
     about data a user may not read."""
     _maybe_reload_comments()
     blocked = _get_blocked_tables()
-    q_tokens = _comment_tokens(question)
+    q_tokens = _comment_tokens(question, expand=True)
     q_upper = question.upper()
     scores = {t: len(q_tokens & toks) for t, toks in _get_table_tokens().items() if t not in blocked}
     for t in scores:
@@ -619,6 +651,13 @@ def _compact_desc(text: str, cap: int) -> str:
 # Rule: add only if the broken plural is actually used in ERP questions
 # AND the singular form already appears in table/column comments.
 _BROKEN_PLURALS: dict[str, str] = {
+    'ارصده':    'رصيد',     # balances → balance
+    'ارصدتهم':  'رصيد',
+    'خزائن':    'خزينه',    # treasuries → treasury
+    'خزن':      'خزينه',
+    'اقلام':    'صنف',      # items (colloquial) → item
+    'ايرادات':  'ايراد',    # revenues → revenue
+    'مصروفات':  'مصروف',    # expenses → expense
     'فواتير':   'فاتوره',   # invoices → invoice
     'عملاء':    'عميل',     # customers → customer
     'موردين':   'مورد',     # suppliers → supplier
@@ -650,8 +689,9 @@ def _normalize_concept(text: str) -> str:
       4. Map common Arabic broken plurals to their canonical singular
          so question words (جمع) match comment words (مفرد) and vice-versa.
     """
-    t = re.sub(r'[أإآٱ]', 'ا', (text or '').strip().lower())
-    t = t.replace('ة', 'ه').replace('ى', 'ي')
+    t = re.sub(r'[ً-ٟـ]', '', (text or '').strip().lower())          # vowel marks and tatweel
+    t = re.sub(r'[أإآٱ]', 'ا', t)
+    t = t.replace('ة', 'ه').replace('ى', 'ي').replace('ؤ', 'و').replace('ئ', 'ي')
     if t.startswith('وال') and len(t) > 5:      # "والموردين" in a comment ≡ "الموردين" in a question
         t = t[1:]
     if t.startswith('ال') and len(t) > 4:

@@ -66,3 +66,25 @@ def test_english_synonyms_resolve_to_the_arabic_legend_meaning_without_changing_
     assert semantic_registry.meaning_candidates("INVTYPE") == ["بيع", "شراء"]
     lex = lexical_layer._compile()
     assert lex["purchase"] == "شراء" and lex["sales"] == "بيع"
+
+
+@pytest.mark.parametrize("question,table", [
+    ("للعملاء الذين لديهم مديونية", "CUST"),
+    ("بالمخازن كم صنف", "STORE"),
+    ("وأرصدة الأصناف", "ITEMS"),
+    ("المَبيعات الشهرية", "MAIN_INV"),
+])
+def test_one_letter_prefixes_and_vowel_marks_do_not_hide_a_table(question, table):
+    primary, _ = schema_loader._select_tables_tiered(question)
+    assert table in primary
+
+
+def test_the_word_itself_is_still_matched_when_a_prefix_variant_is_added():
+    stem = schema_loader._normalize_concept("العملاء")
+    assert stem in schema_loader._comment_tokens("للعملاء", expand=True)
+    assert stem not in schema_loader._comment_tokens("للعملاء")      # comments are not expanded
+
+
+def test_common_plurals_map_to_the_comment_word():
+    n = schema_loader._normalize_concept
+    assert n("الأرصدة") == n("رصيد") and n("الأقلام") == n("صنف")

@@ -67,6 +67,12 @@ _HELP = re.compile(
     re.IGNORECASE
 )
 
+def _leftover_words(text: str, match: "re.Match") -> int:
+    """Words of `text` outside the matched greeting/help phrase."""
+    rest = (text[:match.start()] + " " + text[match.end():])
+    return len(re.findall(r"[ء-يA-Za-z0-9]+", rest))
+
+
 # ── Contextual signals (السؤال محتاج history) ────────────────────
 _CONTEXTUAL_SIGNALS = re.compile(
     r"(نفس|كمان|برضو|تاني|أكمل|فصّل|وضح\s*أكتر|الحاجة\s*دي|اللي\s*فات|"
@@ -222,6 +228,8 @@ def classify_intent(question: str, history: list = None) -> Intent:
       Level 2: LLM fallback      → confidence 0.80-0.90
     """
     q = question.strip()
+    raw_q = q                      # greetings are matched on what was typed: spelling "correction" turns
+                                   # "السلام عليكم" into "السلامة عليكم"
 
     # Pre-normalize Arabic: collapse repeats, fix informal ة/ه, Levenshtein-1 typos
     try:
@@ -235,12 +243,15 @@ def classify_intent(question: str, history: list = None) -> Intent:
 
     q_lower = q.lower()
 
-    # ── Greeting ──
-    if _GREETINGS.match(q):
+    # ── Greeting / help: only when that is all the user said. "مرحبا اريد فواتير اليوم" or
+    #    "ممكن تساعدني اعرف مبيعات اليوم" is a question with a greeting in front of it. ──
+    m = _GREETINGS.match(raw_q)
+    if m and _leftover_words(raw_q, m) <= 2:
         return Intent(category="greeting", original_question=q)
 
-    # ── Help ──
-    if _HELP.search(q_lower):
+    raw_lower = raw_q.lower()
+    m = _HELP.search(raw_lower)
+    if m and _leftover_words(raw_lower, m) <= 3:
         return Intent(category="help", original_question=q)
 
     # ── Context-need detection ──
