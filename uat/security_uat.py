@@ -123,16 +123,34 @@ class Checks:
         status, _ = self.send("POST", "/chat/", {"X-API-Key": "wrong-key-for-uat"}, {"question": "كم عدد العملاء؟"})
         return ("4.2", "مفتاح API خاطئ يُرفض", "PASS" if status == 401 else "FAIL", f"الحالة {status} (المتوقع 401)")
 
+    def _caller_headers(self, extra: dict | None = None):
+        """(headers, why_not). With AUTH_MODE=keys the service key IS an administrator (that is how the owner of the
+        installation works), so "admin routes are closed to a caller without the admin key" can only be judged with
+        a non-administrator's key (--role-key ROLE=KEY). Returns headers=None and the reason when there is none."""
+        _, me = self.send("GET", "/chat/me", self._user(), None)
+        if not isinstance(me, dict) or me.get("role") != "admin":
+            return self._user(extra), ""
+        for role, key in self.role_keys.items():
+            if role != "admin":
+                return {"X-API-Key": key, **(extra or {})}, ""
+        return None, "مفتاح الخدمة مدير في وضع AUTH_MODE=keys — مرّر مفتاح مستخدم غير مدير: --role-key viewer=KEY"
+
     def admin_endpoints_are_closed(self):
+        headers, why = self._caller_headers()
+        if headers is None:
+            return ("4.3", "مسارات الإدارة بدون مفتاح الإدارة = 403", "WARN", why)
         bad = []
         for method, path in ADMIN_ENDPOINTS:
-            status, _ = self.send(method, path, self._user(), {} if method == "POST" else None)
+            status, _ = self.send(method, path, headers, {} if method == "POST" else None)
             if status != 403:
                 bad.append(f"{method} {path} → {status}")
         return ("4.3", "مسارات الإدارة بدون مفتاح الإدارة = 403", "FAIL" if bad else "PASS", "؛ ".join(bad) or "كلها 403")
 
     def wrong_admin_key_is_refused(self):
-        status, _ = self.send("POST", "/chat/reload-schema", self._user({"X-Admin-Key": "wrong-admin-key"}), {})
+        headers, why = self._caller_headers({"X-Admin-Key": "wrong-admin-key"})
+        if headers is None:
+            return ("4.4", "مفتاح إدارة خاطئ يُرفض", "WARN", why)
+        status, _ = self.send("POST", "/chat/reload-schema", headers, {})
         return ("4.4", "مفتاح إدارة خاطئ يُرفض", "PASS" if status == 403 else "FAIL", f"الحالة {status} (المتوقع 403)")
 
     def destructive_requests(self):
