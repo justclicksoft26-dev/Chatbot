@@ -75,6 +75,20 @@ def _permission_fingerprint(perms) -> str:
 _DUAL_MESSAGE_RE = re.compile(r"^\s*SELECT\s+(?P<sel>.+?)\s+FROM\s+DUAL\b", re.IGNORECASE | re.DOTALL)
 
 
+def _probe_chunks(term: str) -> list[str]:
+    """Letter groups a close spelling of `term` still contains. A short word (الحيط) is its own 3-letter chunk, which a
+    one-letter slip (الحايط) breaks, so words of up to 4 letters also contribute their first and last two letters."""
+    words = [w[2:] if w.startswith("ال") and len(w) > 4 else w for w in normalize_ar(term).split()]
+    found = set()
+    for w in words:
+        if len(w) < 3:
+            continue
+        found.update((w[:3], w[-3:]))
+        if len(w) <= 4:
+            found.update((w[:2], w[-2:]))
+    return sorted(c.replace("'", "") for c in found)[:8]
+
+
 async def _name_suggestions(sql: str, user_id: str, company_code: str, fiscal_year: str) -> list[str]:
     """A name search that found nothing: the closest names that do exist, for "did you mean".
 
@@ -94,8 +108,7 @@ async def _name_suggestions(sql: str, user_id: str, company_code: str, fiscal_ye
         if not table:
             log.info("[PIPELINE] name suggestions: column %s is in no table of the query", column)
             return []
-        words = [w[2:] if w.startswith("ال") and len(w) > 4 else w for w in normalize_ar(term).split()]
-        chunks = sorted({c.replace("'", "") for w in words if len(w) >= 3 for c in (w[:3], w[-3:])})[:6]
+        chunks = _probe_chunks(term)
         if not chunks:
             return []
         wrapped = f"TRANSLATE({bare}, '{SQL_FROM}', '{SQL_TO}')"

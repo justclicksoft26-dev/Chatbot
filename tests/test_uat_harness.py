@@ -237,3 +237,13 @@ def test_a_pattern_can_name_a_value_fetched_for_the_scenario(server, tmp_path, m
 def test_sprint_eight_is_registered_with_conversation_scenarios():
     sprint = SPRINTS[8]
     assert any(sc.turns for sc in sprint.scenarios) and any(sc.accept_clarification for sc in sprint.scenarios)
+
+
+def test_each_scenario_starts_with_a_clean_conversation(monkeypatch):
+    import urllib.request
+    from uat import run_uat
+    seen = []
+    monkeypatch.setattr(urllib.request, "urlopen",
+                        lambda req, timeout=0: seen.append((req.full_url, req.headers.get("X-api-key"))) or type("R", (), {"read": lambda self: b"{}"})())
+    run_uat.reset_session("http://x:8000/", "key", "uat-1")
+    assert seen == [("http://x:8000/chat/clear-memory", "key")]
