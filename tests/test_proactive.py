@@ -316,3 +316,84 @@ async def test_monitor_can_be_started_and_stopped(monkeypatch):
     monitor.stop_monitor()
     await asyncio.sleep(0)
     assert task.cancelled() or task.done()
+
+
+# ── stock alerts: the reorder level and the balance function ──────────
+@pytest.fixture
+def seen(monkeypatch):
+    seen = {"sql": [], "rows": [{"LOW_COUNT": 0, "ZERO_COUNT": 0}]}
+
+    async def fake(sql, params=None):
+        seen["sql"].append(sql)
+        return seen["rows"]
+
+    monkeypatch.setattr(monitor, "execute_query", fake)
+    return seen
+
+
+async def test_the_low_stock_alert_uses_the_reorder_level_and_the_balance_function(seen):
+    await monitor.check_low_inventory()
+    sql = seen["sql"][0]
+    assert "MIN_LIMIT" in sql and "RASEED" in sql and "TRANSACTION_TOT" not in sql
+    assert "NVL(i.MIN_LIMIT, 0) > 0" in sql                       # only items somebody decided to watch
+    assert "QTY > 0 AND QTY <= MIN_LIMIT" in sql
+
+
+async def test_the_zero_stock_alert_looks_only_at_items_that_have_a_level(seen):
+    await monitor.check_zero_stock()
+    assert "NVL(i.MIN_LIMIT, 0) > 0" in seen["sql"][0] and "QTY = 0" in seen["sql"][0]
+
+
+async def test_lowercase_columns_from_the_database_are_read(seen):
+    seen["rows"] = [{"low_count": 4}]
+    assert [a.severity for a in await monitor.check_low_inventory()] == ["warning"]
+
+
+def test_the_reorder_level_is_explained_in_the_comments_so_the_model_knows_it():
+    import asyncio
+    from nlu import schema_loader
+    asyncio.run(schema_loader.init_schema_context())
+    text = schema_loader._column_comments["ITEMS"]["MIN_LIMIT"]
+    assert "حد الطلب" in text and "RASEED" in text and "0=" not in text
+
+
+async def test_in_comments_mode_the_pinned_query_runs_and_a_failing_one_falls_back(seen, monkeypatch):
+    from reporting import pins
+    monkeypatch.setenv("DASHBOARD_SQL", "comments")
+    pins.put("monitor/low_stock", "SELECT 3 AS LOW_COUNT FROM DUAL", "q")
+    seen["rows"] = [{"LOW_COUNT": 3}]
+    await monitor.check_low_inventory()
+    assert seen["sql"][-1] == "SELECT 3 AS LOW_COUNT FROM DUAL"
+
+    async def fail_on_pin(sql, params=None):
+        seen["sql"].append(sql)
+        if "FROM DUAL" in sql:
+            raise RuntimeError("ORA-00904")
+        return [{"LOW_COUNT": 12}]
+
+    monkeypatch.setattr(monitor, "execute_query", fail_on_pin)
+    found = await monitor.check_low_inventory()
+    assert [a.severity for a in found] == ["critical"] and "MIN_LIMIT" in seen["sql"][-1]
+    assert pins.get("monitor/low_stock") is None                  # written again next time
+
+
+async def test_the_heavy_checks_run_once_an_hour_and_keep_their_alerts_in_between(monkeypatch):
+    runs = []
+
+    async def check_low_inventory():
+        runs.append(1)
+        return [alert("low_inventory")]
+
+    async def cheap():
+        return []
+
+    monkeypatch.setattr(monitor, "ALL_CHECKS", [check_low_inventory, cheap])
+    monkeypatch.setattr(monitor, "alert_store", alerts.AlertStore())
+    monkeypatch.setattr(monitor, "_last_heavy", {})
+    monkeypatch.setenv("MONITOR_HEAVY_INTERVAL_SECONDS", "3600")
+    first = await monitor.run_all_checks()
+    second = await monitor.run_all_checks()
+    assert len(runs) == 1 and [a.check_key for a in first] == [a.check_key for a in second] == ["low_inventory"]
+    monkeypatch.setenv("MONITOR_HEAVY_INTERVAL_SECONDS", "0")
+    await monitor.run_all_checks()
+    assert len(runs) == 2

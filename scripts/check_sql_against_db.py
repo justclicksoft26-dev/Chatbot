@@ -44,6 +44,9 @@ def collect_queries(company_code: str = "1", fiscal_year: str = "2024"):
     for rtype, queries in _REPORT_QUERIES.items():
         for name, sql in queries.items():
             add(f"report {rtype}/{name}", _resolve_flag_placeholders(sql), classify=False)
+    from proactive import monitor
+    add("monitor low_stock", monitor._LOW_STOCK_SQL, classify=False)
+    add("monitor zero_stock", monitor._ZERO_STOCK_SQL, classify=False)
     return out
 
 
