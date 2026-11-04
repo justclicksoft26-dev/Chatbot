@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 import io
 import hmac
@@ -37,6 +38,13 @@ app = FastAPI(title=profiles.active().TITLE, version="1.0")
 _startup_time = time.time()
 
 
+def _frame_ancestors() -> list[str]:
+    """Origins allowed to embed the chat in a frame (FRAME_ANCESTORS, space or comma separated), e.g. the APEX
+    application. Only explicit http(s) origins count — no wildcards."""
+    raw = os.getenv("FRAME_ANCESTORS", "").replace(",", " ")
+    return [o.rstrip("/") for o in raw.split() if re.fullmatch(r"https?://[A-Za-z0-9.\-]+(:\d+)?/?", o)]
+
+
 # ── Security Headers Middleware ──────────────────────────────────
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     """Add security headers to all responses."""
@@ -44,7 +52,9 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["X-Frame-Options"] = "DENY"
+        ancestors = _frame_ancestors()
+        if not ancestors:
+            response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Permissions-Policy"] = (
             "camera=(), microphone=(), geolocation=(), payment=()"
@@ -58,7 +68,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "font-src 'self' https://fonts.gstatic.com; "
             "img-src 'self' data: blob:; "
             "connect-src 'self'; "
-            "frame-ancestors 'none';"
+            + (f"frame-ancestors 'self' {' '.join(ancestors)};" if ancestors else "frame-ancestors 'none';")
         )
         return response
 
@@ -185,9 +195,9 @@ class ApiKeyMiddleware(BaseHTTPMiddleware):
 
         if keys_mode:                                       # a personal key, or the service key
             try:
-                rbac.identity_from_key(request.headers.get("X-API-Key", ""))
+                rbac.identity_from_request(dict(request.headers))
             except rbac.AuthenticationRequired:
-                return JSONResponse(status_code=401, content={"detail": "المفتاح غير صالح — استخدم مفتاحك الشخصي"})
+                return JSONResponse(status_code=401, content={"detail": "غير مصرّح — سجّل الدخول من التطبيق أو استخدم مفتاحك الشخصي"})
             return await call_next(request)
 
         # Only check header — query param removed for security (key visible in logs/URLs)

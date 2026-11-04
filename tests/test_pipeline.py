@@ -178,14 +178,14 @@ async def test_failed_sql_is_retried_once_with_the_error(world):
     world.db.fail_with = "ORA-00904: invalid identifier"
     r = await ask("متوسط قيمة الفاتورة")
     assert len(world.llm.calls) == 2 and "ORA-00904" in world.llm.calls[1]["question"]
-    assert r.method in ("error", "out_of_scope", "llm_controlled")
+    assert r.method in ("error", "no_answer", "llm_controlled")
 
 
 async def test_out_of_scope_message_comes_from_the_profile(world):
     world.db.fail_with = "ORA-00942"
     r = await ask("ما هو لون السماء؟")
-    if r.method == "out_of_scope":
-        assert "JustClick ERP" in r.answer and "CRM" not in r.answer
+    if r.method == "no_answer":
+        assert "وضّح" in r.answer and "CRM" not in r.answer
 
 
 async def test_comparison_across_companies_is_limited_to_the_users_companies(world):

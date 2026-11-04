@@ -143,6 +143,9 @@ python -m uat.run_uat --sprint all --oracle
 وأي SQL يكتبه النموذج على جدول خارج صلاحيته لا يُنفَّذ أبداً. الإدارة: `python -m security.users add --user ahmed --role sales`
 (ثم `list` / `set-role` / `rotate` / `disable` / `remove`). فحص آلي لكل دور: `--role-key warehouse=المفتاح`.
 
+**الدخول من تطبيق APEX:** APEX يعرف من سجّل الدخول، فيوقّع شهادة قصيرة العمر باسمه ودوره (من جدول `CHATBOT_USER_ROLES`)
+والشات يتحقق منها ويطبّق صلاحيات مجالاته؛ بدون مفاتيح موزّعة. الخطوات الكاملة وكود PL/SQL وJavaScript في `docs/APEX.md`.
+
 **تشغيله (آلي):** `python -m uat.security_uat --oracle` ← يفحص: بلا مفتاح/مفتاح خاطئ = 401، مسارات الإدارة = 403،
 طلبات حذف/تعديل/حقن لا تغيّر شيئاً (يقارن أعداد صفوف `CUST` و`MAIN_INV` قبل وبعد على Oracle)، لا تسريب للأسرار في أي إجابة،
 لا قراءة من قاموس Oracle. التقرير: `data/uat-reports/sprint-4.md`. غياب `DB_READ_USER` يظهر **تحذيراً** لا فشلاً.

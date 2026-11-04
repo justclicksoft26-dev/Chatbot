@@ -221,5 +221,8 @@ HELP = """يمكنني مساعدتك في تحليل واستعراض بيان�
 أستطيع أيضاً إنشاء رسوم بيانية، مقارنات، وتحليلات تنفيذية.
 اسأل بالعربي أو الإنجليزي — أو العامية!"""
 
+NO_ANSWER_AR = ("لم أصل إلى إجابة من بيانات النظام لهذا السؤال. وضّح لي أكثر: ماذا تقصد بالتحديد؟ "
+                "(اسم العميل أو الدورة أو الفترة).")
+NO_ANSWER_EN = "I could not find an answer in the system data. Please be more specific about what you mean (customer, course or period)."
 OUT_OF_SCOPE_AR = "أنا مختص بالأسئلة المتعلقة بنظام CRM (عملاء، موظفون، دورات، أنشطة). سؤالك خارج نطاق البيانات المتاحة."
 OUT_OF_SCOPE_EN = "I specialize in CRM system questions (customers, employees, courses, activities). Your question is outside the available data scope."

@@ -75,6 +75,35 @@ def _permission_fingerprint(perms) -> str:
 _DUAL_MESSAGE_RE = re.compile(r"^\s*SELECT\s+(?P<sel>.+?)\s+FROM\s+DUAL\b", re.IGNORECASE | re.DOTALL)
 
 
+def _follow_up_text(question: str, history: list) -> str:
+    """Words that choose the tables. A short follow-up ("and what is the balance on it?") names nothing: the
+    thing it is about was said in the previous question, so both are read together."""
+    if history and len(question.split()) <= 8:
+        previous = next((m.get("content", "") for m in reversed(history) if m.get("role") == "user"), "")
+        if previous and previous.strip() != question.strip():
+            return f"{previous} {question}"
+    return question
+
+
+def _columns_hint(sql: str, user_id: str) -> str:
+    """The columns the tables of a failed query really have, from the comments (never tables the user may not read)."""
+    from nlu import schema_loader
+    allowed = permissions.allowed_tables(user_id)
+    lines = []
+    for table in sorted(permissions._tables_in(sql)):
+        columns = schema_loader._column_comments.get(table)
+        if columns and (allowed is None or table in allowed):
+            lines.append(f"{table}: {', '.join(columns)}")
+    return "\n".join(lines)
+
+
+def _message_text(sql: str) -> str:
+    """The text a message-only SQL carries: what the model wants to tell the user instead of a query."""
+    m = _DUAL_MESSAGE_RE.match(sql or "")
+    lit = re.search(r"'((?:[^']|'')*)'", m.group("sel")) if m else None
+    return (lit.group(1).replace("''", "'").strip() if lit else "")[:600]
+
+
 def _is_message_only_sql(sql: str) -> bool:
     """SELECT 'some text' FROM DUAL — the model refusing through SQL instead of saying so.
     It reads no table, so it is not an answer from the data; a call such as
@@ -1370,10 +1399,11 @@ async def _execute_llm_controlled(
             log.info(f"[PIPELINE] user={user_id} asked about {refused}, outside their permissions")
             return PipelineResult(answer=permissions.message(user_id, refused, is_arabic_q), sql="",
                                   method="permission_denied")
-        s_key = make_schema_key(f"{question}|{permissions.fingerprint(user_id)}")
+        selection_text = _follow_up_text(question, history)
+        s_key = make_schema_key(f"{selection_text}|{permissions.fingerprint(user_id)}")
         schema_ctx = schema_cache.get(s_key)
         if schema_ctx is None:
-            schema_ctx = get_relevant_schema(question, permissions.allowed_tables(user_id))
+            schema_ctx = get_relevant_schema(selection_text, permissions.allowed_tables(user_id))
             schema_cache.set(s_key, schema_ctx)
         else:
             log.info("[PIPELINE] Schema context cache HIT")
@@ -1415,13 +1445,12 @@ async def _execute_llm_controlled(
         )
 
         if _is_message_only_sql(sql_raw):
-            log.info("[PIPELINE] model answered with a literal message (no table read) — out of scope")
+            # The model chose not to query: the question is unclear (it asks what it needs) or not about the ERP
+            # (it says so). Its own words are the answer — a canned "out of scope" would be wrong for an unclear question.
+            log.info("[PIPELINE] model answered with a message instead of a query (no table read)")
             texts = profiles.part("prompts")
-            return PipelineResult(
-                answer=texts.OUT_OF_SCOPE_AR if any('؀' <= c <= 'ۿ' for c in question) else texts.OUT_OF_SCOPE_EN,
-                sql="",
-                method="out_of_scope",
-            )
+            fallback = texts.NO_ANSWER_AR if is_arabic_q else texts.NO_ANSWER_EN
+            return PipelineResult(answer=_message_text(sql_raw) or fallback, sql="", method="assistant_message")
 
         # Safety validation + company / year / branch scoping
         safety, params = _prep(sql_raw, question, user_id, company_code, fiscal_year)
@@ -1444,22 +1473,21 @@ async def _execute_llm_controlled(
         # Execute
         data, err = await _try_execute(sql, params)
 
-        # Auto-fix loop: if SQL failed, ask LLM to fix
-        # TPM budget: classify_intent (~700 tok) + generate_sql (~3000 tok) already consumed.
-        # Passing schema_ctx again (~2200 tok) would push auto-fix over Groq 6000 TPM/min.
-        # The failed SQL itself carries the schema structure the LLM needs to fix syntax —
-        # schema_context="" keeps auto-fix under ~1000 tokens so total stays ≤ 6000 TPM.
+        # Auto-fix: if the SQL failed, ask the LLM once more with the error, the schema and the columns the
+        # tables really have (an invented column can only be corrected by something that shows the real ones).
         if err:
             _sql_ascii = sql[:400].encode("unicode_escape").decode()
             log.warning(f"[PIPELINE] LLM SQL failed | SQL={_sql_ascii} | ERR={err[:120]}")
+            columns = _columns_hint(sql, user_id)
             fix_question = (
                 f"الاستعلام التالي فشل:\n{sql}\n\n"
                 f"الخطأ: {err[:300]}\n\n"
-                f"السؤال الأصلي: {question}\n\n"
+                + (f"الأعمدة الموجودة فعلاً في هذه الجداول (لا تستخدم غيرها):\n{columns}\n\n" if columns else "")
+                + f"السؤال الأصلي: {question}\n\n"
                 f"أعد كتابة SQL صحيح يجيب على السؤال. أرجع SQL فقط."
             )
             sql_raw = await generate_sql_async(
-                schema_context="",   # TPM budget: failed SQL already has schema; no full ctx needed
+                schema_context=schema_ctx,   # the retry must see the schema too, or an invented column cannot be corrected
                 question=fix_question,
                 company_code="",
                 fiscal_year="",
@@ -1483,9 +1511,9 @@ async def _execute_llm_controlled(
                 is_arabic = any('؀' <= c <= 'ۿ' for c in question)
                 texts = profiles.part("prompts")
                 return PipelineResult(
-                    answer=texts.OUT_OF_SCOPE_AR if is_arabic else texts.OUT_OF_SCOPE_EN,
+                    answer=texts.NO_ANSWER_AR if is_arabic else texts.NO_ANSWER_EN,
                     sql="",
-                    method="out_of_scope",
+                    method="no_answer",
                 )
             raise Exception(err)
 

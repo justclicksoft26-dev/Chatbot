@@ -20,6 +20,7 @@ Row-level security:
 import hmac
 import os
 import re
+import time
 import logging
 from dataclasses import dataclass, field
 from typing import Optional
@@ -232,6 +233,14 @@ def _get_jwt_secret() -> str:
     return secret
 
 
+def _max_token_seconds() -> int:
+    """Longest lifetime a token may claim (SSO_MAX_TOKEN_SECONDS, default one hour)."""
+    try:
+        return max(60, int(os.getenv("SSO_MAX_TOKEN_SECONDS", "3600")))
+    except ValueError:
+        return 3600
+
+
 def verify_token(token: str) -> Optional[dict]:
     """Verify a JWT Bearer token and return {user_id, role, company_code, branches}.
 
@@ -263,17 +272,32 @@ def verify_token(token: str) -> Optional[dict]:
     try:
         import jwt as _jwt  # PyJWT
 
+        audience = os.getenv("JWT_AUDIENCE", "").strip()
         payload = _jwt.decode(
             token,
             secret,
             algorithms=["HS256"],               # explicit allowlist — alg:none rejected
-            options={"require": ["exp", "sub"]}, # both claims mandatory
+            options={"require": ["exp", "sub"], "verify_aud": bool(audience), "verify_iat": False},   # exp, sub mandatory
+            audience=audience or None,
         )
+        role = payload.get("role", "viewer")
+        if role not in ROLES:
+            log.warning("[RBAC] JWT carries an unknown role %r — refused", role)
+            return None
+        # A token that lives long is a token that can be stolen and reused: bound its lifetime.
+        issued = payload.get("iat") or time.time()
+        if issued > time.time() + 60:                    # a clock a minute ahead is tolerated (APEX and the chat run on two servers)
+            log.warning("[RBAC] JWT issued in the future — refused")
+            return None
+        if payload["exp"] - issued > _max_token_seconds():
+            log.warning("[RBAC] JWT lifetime exceeds %ss — refused", _max_token_seconds())
+            return None
+        branches = payload.get("branches", [])
         return {
-            "user_id":      payload["sub"],
-            "role":         payload.get("role", "viewer"),
-            "company_code": payload.get("company", "1"),
-            "branches":     payload.get("branches", []),
+            "user_id":      str(payload["sub"]),
+            "role":         role,
+            "company_code": str(payload.get("company", "1")),
+            "branches":     [str(b) for b in branches] if isinstance(branches, list) else [],
         }
 
     except ImportError:
@@ -316,6 +340,22 @@ class AuthenticationRequired(Exception):
 MASTER_USER = "master"
 
 
+def identity_from_request(headers: dict) -> str:
+    """AUTH_MODE=keys: who is calling.
+
+    1. ``Authorization: Bearer <token>`` signed by the host application (APEX) with the shared JWT_SECRET —
+       the application knows who is logged in, so the chat trusts that identity and the role in the token;
+    2. else the personal key in ``X-API-Key`` (security/users.py) or the service key.
+    """
+    auth = headers.get("authorization", "")
+    if auth.startswith("Bearer ") and os.getenv("JWT_SECRET", "").strip():
+        claims = verify_token(auth[7:])
+        if claims:
+            assign_role(claims["user_id"], claims["role"], claims["company_code"], claims["branches"])
+            return claims["user_id"]
+    return identity_from_key(headers.get("x-api-key", ""))
+
+
 def identity_from_key(key: str) -> str:
     """AUTH_MODE=keys: the user holding this key (security/users.py), or the master identity for the
     service key API_KEY. The user_id sent in the request body is ignored."""
@@ -339,7 +379,7 @@ def resolve_user_id(headers: dict, claimed_user_id: str) -> str:
     (access is then gated by the X-API-Key middleware, not per user).
     """
     if _AUTH_MODE == "keys":
-        return identity_from_key(headers.get("x-api-key", ""))
+        return identity_from_request(headers)
     verified = authenticate_request(headers)
     if verified:
         if verified != claimed_user_id:

@@ -65,7 +65,7 @@ def require_admin(request: Request) -> None:
 
     if rbac.auth_mode() == "keys":
         try:
-            if is_admin(rbac.identity_from_key(request.headers.get("X-API-Key", ""))):
+            if is_admin(rbac.identity_from_request(dict(request.headers))):
                 return
         except rbac.AuthenticationRequired:
             pass
