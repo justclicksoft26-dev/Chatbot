@@ -30,6 +30,12 @@ def company_scope_on(monkeypatch):
 def isolated_sqlite(tmp_path, monkeypatch):
     """Point every SQLite user (actions, sessions, rate limit, audit) at a temp file."""
     monkeypatch.setenv("LEARNING_DB_PATH", str(tmp_path / "learning.db"))
+    monkeypatch.setenv("LLM_USAGE_FILE", str(tmp_path / "llm_usage.json"))      # the day's model-call count lives in a file
+    from llm import llm_client
+    monkeypatch.setattr(llm_client, "_daily", {})
+    monkeypatch.setattr(llm_client, "_daily_loaded_from", None)
+    for var in ("LLM_DAILY_REQUEST_LIMIT", "LLM_PRICE_IN_PER_MILLION", "LLM_PRICE_OUT_PER_MILLION"):
+        monkeypatch.delenv(var, raising=False)
     # Tables are created at import time; re-create them in the temp database.
     from erp_actions import store
     store._actions.clear()
