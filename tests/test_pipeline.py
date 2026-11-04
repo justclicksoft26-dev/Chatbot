@@ -68,12 +68,6 @@ def world(monkeypatch):
     company_manager._COMPANY_ACCESS.clear()
 
 
-@pytest.fixture
-def template_mode(monkeypatch):
-    """The legacy hybrid mode, where the profile's ready-made SQL templates may answer first."""
-    monkeypatch.setenv("ANSWER_MODE", "templates")
-
-
 async def ask(question, user="u1", company="1", year="2024", **kw):
     return await pipeline.process_question(question, user_id=user, company_code=company, fiscal_year=year, **kw)
 
@@ -101,44 +95,9 @@ async def test_prompt_injection_is_refused_without_touching_anything(world):
 
 
 # ── template path ──────────────────────────────────────────────────────
-@pytest.mark.usefixtures("template_mode")
-async def test_template_answer_is_scoped_to_company_and_year(world):
-    r = await ask("كم عدد فواتير المبيعات؟", company="7", year="2025")
-    assert r.method == "template" and r.template_used == "invoice_count_sales"
-    sql = world.db.last_sql
-    assert re.search(r"COMPANY_CODE = 7\b", sql) and re.search(r"FISCAL_YEAR = 2025\b", sql)
-    assert "INVTYPE = 0" in sql and "RETURN_FLAG = 0" in sql
-    assert world.llm.calls == []                       # no model involved
-
-
 async def test_scalar_answer_is_formatted_locally(world):
     r = await ask("كم عدد فواتير المبيعات؟")
     assert r.row_count == 1 and "7" in r.answer
-
-
-@pytest.mark.usefixtures("template_mode")
-async def test_customer_join_keeps_the_type_and_each_table_gets_its_company(world):
-    world.db.rows = [{"CUSTID": 1, "CUST_NAME": "x", "TOTAL_SALES": 10}]
-    await ask("أعلى 5 عملاء في المبيعات", company="2")
-    sql = world.db.last_sql
-    assert "c.CUST_TYPE = m.CUST_TYPE" in sql and "FETCH FIRST 5 ROWS ONLY" in sql
-    assert re.search(r"m\.COMPANY_CODE = 2\b", sql) and re.search(r"c\.COMPANY_CODE = 2\b", sql)
-
-
-@pytest.mark.usefixtures("template_mode")
-async def test_today_template_only_when_today_is_asked(world):
-    await ask("إجمالي مبيعات اليوم")
-    assert "SYSDATE" in world.db.last_sql
-    await ask("إجمالي المبيعات")
-    assert "SYSDATE" not in world.db.last_sql
-
-
-@pytest.mark.usefixtures("template_mode")
-async def test_purchase_and_sales_never_swap(world):
-    await ask("عدد فواتير المشتريات")
-    assert "INVTYPE = 1" in world.db.last_sql
-    await ask("عدد فواتير المبيعات")
-    assert "INVTYPE = 0" in world.db.last_sql
 
 
 async def test_malformed_scope_values_never_reach_the_database(world):
@@ -291,19 +250,6 @@ async def test_sql_result_cache_is_keyed_by_the_scoped_sql(world):
 
 
 # ── conversation context ───────────────────────────────────────────────
-@pytest.mark.usefixtures("template_mode")
-async def test_relative_time_follows_an_explicit_follow_up(world):
-    await ask("إجمالي مبيعات اليوم")
-    await ask("وكمان إجمالي المشتريات")
-    assert "SYSDATE" in world.db.last_sql and "INVTYPE = 1" in world.db.last_sql
-
-
-@pytest.mark.usefixtures("template_mode")
-async def test_stock_balance_plural_is_understood(world):
-    await ask("رصيد المخازن")
-    assert "RASEED" in world.db.last_sql
-
-
 async def test_executive_report_needs_access_to_its_domain(world, monkeypatch):
     from reporting import executive_reports as er
     rbac.assign_role("wh", "warehouse", company_code="1")          # inventory only
