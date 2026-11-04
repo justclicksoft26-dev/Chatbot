@@ -55,7 +55,8 @@ def check_response(sc: Scenario, resp: dict) -> list[str]:
             problems.append("الإجابة فارغة")
         return problems
     if resp.get("method") != "llm_controlled":
-        problems.append(f"الإجابة لم تأتِ من مسار التعليقات (method={resp.get('method')!r})")
+        shown = " ".join(answer.split())[:160]
+        problems.append(f"الإجابة لم تأتِ من مسار التعليقات (method={resp.get('method')!r}) — الرد: {shown!r}")
     if resp.get("template_used"):
         problems.append(f"استُخدم قالب جاهز: {resp['template_used']}")
     if not sql.strip():
