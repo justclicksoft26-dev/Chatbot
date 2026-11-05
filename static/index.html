@@ -2484,6 +2484,18 @@
     let fullText = '';
     let meta = {};
 
+    // The server answers once the whole pipeline is done (the model may take a while): show that it is working, for
+    // how long, and say so plainly when it is taking too long, instead of an unchanging "processing" box.
+    const startedAt = Date.now();
+    const slowTimer = setInterval(function () {
+      if (!isLoading || fullText || !document.body.contains(stageEl) || Date.now() - startedAt > 300000) { clearInterval(slowTimer); return; }
+      const sec = Math.round((Date.now() - startedAt) / 1000);
+      const item = stageEl.querySelector('.sse-stage-item.running');
+      if (!item) return;
+      item.innerHTML = '<span class="stage-icon">⟳</span> جاري المعالجة... ' + sec + ' ث' +
+        (sec >= 40 ? ' — تأخر الرد (النموذج مشغول أو السؤال واسع). جرّب إعادة صياغته أو ابدأ «محادثة جديدة».' : '');
+    }, 1000);
+
     function renderStage(stage) {
       const existing = stageEl.querySelector('[data-stage="' + stage.name + '"]');
       const statusIcon = stage.status === 'completed' ? '✓' : stage.status === 'running' ? '⟳' : '○';
