@@ -1845,6 +1845,31 @@
       direction: ltr;
     }
     .md-analysis-header { color: var(--teal); }
+    /* ── Identity chip, key dialog, admin panel ───────── */
+    .me-chip { cursor: pointer; }
+    .me-chip .me-role { opacity: .7; font-weight: 500; margin-inline-start: 6px; }
+    .modal-overlay {
+      position: fixed; inset: 0; background: oklch(0.2 0.02 260 / 0.55); display: none;
+      align-items: center; justify-content: center; z-index: 200; padding: 16px;
+    }
+    .modal-overlay.show { display: flex; }
+    .modal-card {
+      background: var(--surface, #fff); color: inherit; border: 1px solid var(--border); border-radius: 16px;
+      width: min(560px, 100%); max-height: 86vh; overflow: auto; padding: 22px; box-shadow: var(--shadow-lg);
+    }
+    .modal-card h3 { margin: 0 0 12px; font-size: 16px; }
+    .modal-card input[type=password], .modal-card input[type=text] {
+      width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; font-size: 14px; margin: 8px 0 12px;
+    }
+    .modal-actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+    .modal-btn { padding: 8px 16px; border-radius: 10px; border: 1px solid var(--border); background: transparent; cursor: pointer; font-size: 13px; }
+    .modal-btn.primary { background: oklch(0.55 0.2 260); color: #fff; border-color: transparent; }
+    .adm-section { margin: 14px 0; }
+    .adm-section h4 { margin: 0 0 6px; font-size: 13px; opacity: .75; }
+    .adm-row { display: flex; justify-content: space-between; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+    .adm-row small { opacity: .6; white-space: nowrap; }
+    .dom-tag { display: inline-block; padding: 3px 10px; margin: 3px; border-radius: 99px; background: var(--bg); border: 1px solid var(--border); font-size: 12px; }
+
   </style>
 </head>
 <body>
@@ -1891,6 +1916,12 @@
         <button class="header-chip" id="scope-chip" onclick="editScope()" title="تغيير الشركة والسنة المالية" style="display:none">
           <span id="scope-label">الشركة · السنة</span>
         </button>
+        <button class="header-chip me-chip" id="me-chip" onclick="showMe()" title="حسابك وصلاحياتك">
+          <span id="me-name">غير مسجّل</span><span class="me-role" id="me-role"></span>
+        </button>
+        <button class="header-chip" id="admin-chip" onclick="showAdmin()" title="الأسئلة غير المجابة والاستهلاك" style="display:none">
+          <span>🛠 الإدارة</span>
+        </button>
         <div class="header-chip">
           <span class="status-dot" id="status-dot"></span>
           <span id="status-label">متصل</span>
@@ -1931,6 +1962,33 @@
 
   <div class="toast" id="toast"></div>
 
+  <div class="modal-overlay" id="key-modal">
+    <div class="modal-card">
+      <h3>تسجيل الدخول</h3>
+      <div style="font-size:13px;opacity:.75">أدخل مفتاحك الشخصي. يعطيك إياه مسؤول النظام، ولا يظهر إلا مرة واحدة عند إنشائه.</div>
+      <input type="password" id="key-input" placeholder="jc_..." autocomplete="off" onkeydown="if(event.key==='Enter')saveKey()" />
+      <div id="key-error" style="color:var(--red);font-size:12px;min-height:16px"></div>
+      <div class="modal-actions">
+        <button class="modal-btn primary" onclick="saveKey()">دخول</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="me-modal" onclick="if(event.target===this)closeModal('me-modal')">
+    <div class="modal-card"><div id="me-body"></div>
+      <div class="modal-actions" style="margin-top:14px">
+        <button class="modal-btn" onclick="logoutKey()">تسجيل خروج</button>
+        <button class="modal-btn primary" onclick="closeModal('me-modal')">إغلاق</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="admin-modal" onclick="if(event.target===this)closeModal('admin-modal')">
+    <div class="modal-card"><h3>لوحة الإدارة</h3><div id="admin-body">…</div>
+      <div class="modal-actions" style="margin-top:14px"><button class="modal-btn primary" onclick="closeModal('admin-modal')">إغلاق</button></div>
+    </div>
+  </div>
+
   <!-- Training Modal -->
   <div id="train-modal-overlay" onclick="closeTrainModalOutside(event)">
     <div class="train-modal">
@@ -1969,7 +2027,7 @@
 
   const _qs = new URLSearchParams(window.location.search);
   const _urlKey = _qs.get('key') || _qs.get('api_key');
-  const API_KEY = _urlKey || localStorage.getItem('justclick_api_key') || '';
+  let API_KEY = _urlKey || localStorage.getItem('justclick_api_key') || '';
   if (_urlKey) {
     localStorage.setItem('justclick_api_key', _urlKey);
     _qs.delete('key'); _qs.delete('api_key');                 // do not leave the key in the address bar / history
@@ -2352,6 +2410,7 @@
       const data = await res.json();
       removeLoading();
 
+      if (res.status === 401) { showKeyDialog('أدخل مفتاحك للمتابعة'); }
       if (!res.ok) {
         appendError(data.detail || 'حدث خطأ في السيرفر');
       } else {
@@ -2453,6 +2512,7 @@
         })
       });
 
+      if (res.status === 401) { showKeyDialog('أدخل مفتاحك للمتابعة'); throw new Error('unauthorized'); }
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
@@ -2542,6 +2602,12 @@
       conversationHistory.push({ role: 'assistant', content: fullText });
 
     } catch (err) {
+      if (err && err.message === 'unauthorized') {              // not a stream failure: the key is missing or wrong
+        stageEl.innerHTML = '<div class="sse-stage-item"><span class="stage-icon">🔒</span> سجّل دخولك لمتابعة الأسئلة</div>';
+        isLoading = false;
+        document.getElementById('send-btn').disabled = false;
+        return;
+      }
       // SSE Resilience: Immediate fallback to non-streaming /chat/ endpoint
       console.warn('[SSE] Stream failed, falling back to /chat/', err.message);
       stageEl.innerHTML = '<div class="sse-stage-item running"><span class="stage-icon">⟳</span> جاري المعالجة...</div>';
@@ -3505,10 +3571,92 @@
     return html;
   }
 
+
+  // ══════════════════════════════════════════════════════════════
+  // WHO AM I · KEY DIALOG · ADMIN PANEL
+  // ══════════════════════════════════════════════════════════════
+  let ME = null;
+  const ROLE_LABELS = { admin: 'مدير النظام', manager: 'مدير', accountant: 'محاسب', sales: 'مبيعات', warehouse: 'مخازن', hr: 'موارد بشرية', viewer: 'عرض فقط' };
+  function closeModal(id) { document.getElementById(id).classList.remove('show'); }
+  function openModal(id) { document.getElementById(id).classList.add('show'); }
+  function showKeyDialog(msg) {
+    document.getElementById('key-error').textContent = msg || '';
+    openModal('key-modal');
+    setTimeout(() => document.getElementById('key-input').focus(), 50);
+  }
+  function saveKey() {
+    const v = document.getElementById('key-input').value.trim();
+    if (!v) { document.getElementById('key-error').textContent = 'اكتب المفتاح'; return; }
+    API_KEY = v;
+    try { localStorage.setItem('justclick_api_key', v); } catch (e) { /* kept in memory */ }
+    closeModal('key-modal');
+    loadMe(true);
+  }
+  function logoutKey() {
+    try { localStorage.removeItem('justclick_api_key'); sessionStorage.removeItem('justclick_sso'); } catch (e) { /* ignore */ }
+    API_KEY = ''; SSO_TOKEN = ''; ME = null;
+    closeModal('me-modal'); renderMe(); showKeyDialog();
+  }
+  function renderMe() {
+    const name = document.getElementById('me-name'), role = document.getElementById('me-role');
+    if (!ME) { name.textContent = 'غير مسجّل'; role.textContent = ''; document.getElementById('admin-chip').style.display = 'none'; return; }
+    name.textContent = ME.user_id || 'زائر';
+    role.textContent = '· ' + (!ME.restricted && ME.role === 'viewer' ? 'وصول كامل' : (ROLE_LABELS[ME.role] || ME.role));
+    document.getElementById('admin-chip').style.display = ME.role === 'admin' ? '' : 'none';
+  }
+  async function loadMe(announce) {
+    try {
+      const r = await fetch(API + '/chat/me', { headers: apiHeaders() });
+      if (r.status === 401 || r.status === 403) { ME = null; renderMe(); showKeyDialog(API_KEY ? 'المفتاح غير صحيح أو انتهت صلاحيته' : ''); return; }
+      if (!r.ok) throw new Error(r.status);
+      ME = await r.json(); renderMe();
+      if (announce) showToast('أهلاً ' + ME.user_id);
+    } catch (e) { /* offline: the status chip already says so */ }
+  }
+  function showMe() {
+    if (!ME) { showKeyDialog(); return; }
+    const labels = ME.domain_labels || {};
+    const tags = (ME.domains || []).map(d => '<span class="dom-tag">' + escHtml(labels[d] || d) + '</span>').join('') || '—';
+    document.getElementById('me-body').innerHTML =
+      '<h3>' + escHtml(ME.user_id || 'زائر') + ' <small style="opacity:.6;font-weight:500">· ' + escHtml(ROLE_LABELS[ME.role] || ME.role) + '</small></h3>' +
+      '<div class="adm-section"><h4>' + (ME.restricted ? 'المجالات المسموح لك بها (أي سؤال خارجها يُرفض)' : 'كل المجالات') + '</h4>' + tags + '</div>' +
+      '<div class="adm-section"><h4>الفروع</h4>' + escHtml((ME.branches || []).join('، ') || '—') + '</div>' +
+      '<div class="adm-section" style="font-size:13px"><h4>الصلاحيات</h4>' + (ME.can_view_sql ? '✓ رؤية الاستعلام' : '✗ رؤية الاستعلام') + ' · ' + (ME.can_export ? '✓ التصدير' : '✗ التصدير') + '</div>';
+    openModal('me-modal');
+  }
+  async function showAdmin() {
+    openModal('admin-modal');
+    const body = document.getElementById('admin-body');
+    body.textContent = '…';
+    const get = async (path) => { try { const r = await fetch(API + path, { headers: apiHeaders() }); return r.ok ? await r.json() : null; } catch (e) { return null; } };
+    const [usage, gaps, pins] = await Promise.all([get('/chat/usage'), get('/chat/gaps?limit=12'), get('/chat/pins')]);
+    let html = '';
+    if (usage) {
+      const t = usage.today || {};
+      html += '<div class="adm-section"><h4>استهلاك الذكاء الاصطناعي اليوم</h4>' +
+        '<div class="adm-row"><span>الطلبات</span><b>' + (t.requests || 0) + (usage.daily_request_limit ? ' / ' + usage.daily_request_limit : '') + '</b></div>' +
+        '<div class="adm-row"><span>الرموز (إدخال / إخراج)</span><b>' + (t.prompt || 0) + ' / ' + (t.completion || 0) + '</b></div>' +
+        (t.cost_estimate != null ? '<div class="adm-row"><span>التكلفة التقديرية</span><b>' + escHtml(String(t.cost_estimate)) + '</b></div>' : '') + '</div>';
+    }
+    if (gaps) {
+      const rows = (gaps.groups || []).map(g => '<div class="adm-row"><span>' + escHtml(g.sample) + '</span><small>' + g.count + '× · ' + g.users + ' مستخدم</small></div>').join('');
+      html += '<div class="adm-section"><h4>أسئلة لم يستطع النظام الإجابة عنها (تعليق ناقص غالباً)</h4>' + (rows || '<small>لا شيء — كل الأسئلة أُجيبت</small>') + '</div>';
+    }
+    if (pins) {
+      const c = {}; (pins.pins || []).forEach(p => { c[p.status] = (c[p.status] || 0) + 1; });
+      html += '<div class="adm-section"><h4>استعلامات اللوحات المكتوبة من التعليقات (' + escHtml(pins.mode) + ')</h4>' +
+        '<div class="adm-row"><span>معتمدة</span><b>' + (c.approved || 0) + '</b></div>' +
+        '<div class="adm-row"><span>بانتظار المراجعة</span><b>' + (c.auto || 0) + '</b></div>' +
+        '<div class="adm-row"><span>فاشلة</span><b>' + (c.failed || 0) + '</b></div></div>';
+    }
+    body.innerHTML = html || '<small>لا صلاحية لعرض هذه البيانات</small>';
+  }
+
   // ══════════════════════════════════════════════════════════════
   // INIT
   // ══════════════════════════════════════════════════════════════
   (function init() {
+    loadMe(false);
     checkHealth();
     setInterval(checkHealth, 30000);
     loadScopeDefaults();
