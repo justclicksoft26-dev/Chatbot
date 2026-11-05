@@ -112,11 +112,38 @@ CREATE TABLE {schema}.AI_ACTION_REQUESTS (
 
 CREATE INDEX idx_air_status_co ON {schema}.AI_ACTION_REQUESTS (STATUS, COMPANY_CODE);
 CREATE INDEX idx_air_requested ON {schema}.AI_ACTION_REQUESTS (REQUESTED_BY, REQUESTED_AT);
-CREATE INDEX idx_air_assigned  ON {schema}.AI_ACTION_REQUESTS (ASSIGNED_TO)
-    WHERE ASSIGNED_TO IS NOT NULL;
+CREATE INDEX idx_air_assigned  ON {schema}.AI_ACTION_REQUESTS (ASSIGNED_TO);
 
 COMMENT ON TABLE  {schema}.AI_ACTION_REQUESTS IS 'JustClick AI Chatbot — pending / completed workflow actions';
 COMMENT ON COLUMN {schema}.AI_ACTION_REQUESTS.STATUS IS 'pending | approved | rejected | completed | cancelled';
+"""
+
+
+# ── Grants that tolerate objects the database does not have ──────────────────
+
+def _grant_block(schema: str, grants: list[tuple[str, str, str, str]]) -> str:
+    """One PL/SQL block: GRANT <priv> ON schema.<object> TO <user> for every (object, priv, user, type) that exists.
+    A table, sequence or function missing from this database is reported and skipped instead of stopping the whole
+    script (a single ORA-00942 would otherwise leave the users half created)."""
+    calls = "\n".join(f"    grant_if_exists('{o}', '{p}', '{u}', '{t}');" for o, p, u, t in grants)
+    return f"""\
+SET SERVEROUTPUT ON
+DECLARE
+  PROCEDURE grant_if_exists(p_obj VARCHAR2, p_priv VARCHAR2, p_to VARCHAR2, p_type VARCHAR2) IS
+    n NUMBER;
+  BEGIN
+    SELECT COUNT(*) INTO n FROM all_objects
+     WHERE owner = UPPER('{schema}') AND object_name = UPPER(p_obj) AND object_type = p_type;
+    IF n = 0 THEN
+      DBMS_OUTPUT.PUT_LINE('skipped (not found): ' || p_obj);
+    ELSE
+      EXECUTE IMMEDIATE 'GRANT ' || p_priv || ' ON {schema}.' || p_obj || ' TO ' || p_to;
+    END IF;
+  END;
+BEGIN
+{calls}
+END;
+/
 """
 
 
@@ -140,13 +167,13 @@ def _read_user_sql(schema: str, read_user: str, tables: list[str]) -> str:
         "-- SELECT on all ERP tables (comment-driven — matches justclick_comments.sql)",
     ]
 
-    for tbl in tables:
-        lines.append(f"GRANT SELECT ON {schema}.{tbl} TO {read_user};")
-
+    grants = [(t, "SELECT", read_user, "TABLE") for t in tables]
+    grants.append(("AI_ACTION_REQUESTS", "SELECT", read_user, "TABLE"))
+    grants.append(("RASEED", "EXECUTE", read_user, "FUNCTION"))      # stock balance: the questions about stock call it
+    lines.append(_grant_block(schema, grants))
     lines += [
-        "",
-        "-- SELECT on workflow tracking table (queries via execute_read_query)",
-        f"GRANT SELECT ON {schema}.AI_ACTION_REQUESTS TO {read_user};",
+        "-- The application reads unqualified names (FROM ITEMS): set DB_SCHEMA=" + schema + " in .env so every",
+        "-- connection of this user starts with ALTER SESSION SET CURRENT_SCHEMA (no synonyms needed).",
         "",
         "-- No sequence grants needed for the read user (CURRVAL requires prior NEXTVAL",
         "-- on the same session, which read queries never issue).",
@@ -180,25 +207,14 @@ def _dml_user_sql(schema: str, dml_user: str) -> str:
         "-- Table-level DML grants (minimum required by erp_actions/registry.py)",
     ]
 
-    for tbl, privs in _DML_GRANTS.items():
-        qualified = f"{schema}.{tbl}" if tbl != "AI_ACTION_REQUESTS" else f"{schema}.{tbl}"
-        privs_str = ", ".join(privs)
-        comment = {
-            "CUST":               "customers + suppliers: create, update, deactivate",
-            "ITEMS":              "items: create, update, price change",
-            "PAYED":              "payments + collections: create (no UPDATE — immutable records)",
-            "AI_ACTION_REQUESTS": "workflow: approve, reject, new request",
-        }.get(tbl, "")
-        lines.append(f"-- {comment}")
-        lines.append(f"GRANT {privs_str} ON {qualified} TO {dml_user};")
-        lines.append("")
-
     lines += [
-        "-- Sequence NEXTVAL for INSERT ID generation",
-        "-- (SELECT on sequence = permission to call .NEXTVAL and .CURRVAL)",
+        "-- customers + suppliers (CUST): create, update, deactivate · items (ITEMS): create, update, price change",
+        "-- payments (PAYED): create · workflow (AI_ACTION_REQUESTS): approve, reject, new request",
+        "-- sequences: SELECT on a sequence allows NEXTVAL for new ids. Objects missing from the database are skipped.",
     ]
-    for seq in _SEQUENCES:
-        lines.append(f"GRANT SELECT ON {schema}.{seq} TO {dml_user};")
+    grants = [(t, priv, dml_user, "TABLE") for t, privs in _DML_GRANTS.items() for priv in privs]
+    grants += [(seq, "SELECT", dml_user, "SEQUENCE") for seq in _SEQUENCES]
+    lines.append(_grant_block(schema, grants))
 
     lines += [
         "",
@@ -285,6 +301,8 @@ def main():
     parser.add_argument("--schema",    default="justclick",      help="Oracle schema owner")
     parser.add_argument("--read-user", default="justclick_read", help="Read-only user name")
     parser.add_argument("--dml-user",  default="justclick_dml",  help="DML-only user name")
+    parser.add_argument("--comments", default=str(_ROOT / "profiles" / "justclick" / "comments.sql"),
+                        help="comments file whose tables the read user may select")
     parser.add_argument("--out", default=str(_ROOT / "scripts" / "oracle_users_setup.sql"),
                         help="Output SQL file path")
     args = parser.parse_args()
@@ -295,7 +313,7 @@ def main():
     out_path  = Path(args.out)
 
     # Read tables from justclick_comments.sql
-    comments_path = _ROOT / "justclick_comments.sql"
+    comments_path = Path(args.comments)
     if not comments_path.exists():
         print(f"ERROR: {comments_path} not found", file=sys.stderr)
         sys.exit(1)
@@ -347,13 +365,13 @@ WHENEVER SQLERROR EXIT SQL.SQLCODE ROLLBACK;
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(sql_out, encoding="utf-8")
     print(f"[GEN] Written: {out_path}")
-    print(f"[GEN] Read-user grants: {len(tables) + 1} tables")
+    print(f"[GEN] Read-user grants: {len(tables) + 1} tables + RASEED (missing objects are skipped when it runs)")
     print(f"[GEN] DML-user grants : {len(_DML_GRANTS)} tables + {len(_SEQUENCES)} sequences")
     print()
     print("Next steps:")
     print(f"  1. Edit {out_path.name} — replace CHANGE_ME_* passwords")
     print("  2. sqlplus sys/<pass>@<SID> as sysdba @scripts/oracle_users_setup.sql")
-    print(f"  3. Add to .env: DB_READ_USER={read_user}  DB_DML_USER={dml_user}")
+    print(f"  3. Add to .env: DB_READ_USER={read_user}  DB_DML_USER={dml_user}  DB_SCHEMA={schema}")
     print("  4. Restart the application")
 
 
