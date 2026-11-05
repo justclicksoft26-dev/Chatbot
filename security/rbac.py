@@ -129,12 +129,11 @@ def assign_role(user_id: str, role: str, company_code: str = "1",
     """Assign a role to a user (called from admin API or startup)."""
     if role not in ROLES:
         raise ValueError(f"Unknown role: {role}. Valid: {list(ROLES.keys())}")
-    _user_roles[user_id] = {
-        "role": role,
-        "company_code": company_code,
-        "branches": branches or [],
-    }
-    log.info(f"[RBAC] Assigned role={role} to user={user_id}")
+    new = {"role": role, "company_code": company_code, "branches": branches or []}
+    changed = _user_roles.get(user_id) != new
+    _user_roles[user_id] = new
+    # Every request re-assigns the role of its key or token; only a real change is worth a log line.
+    (log.info if changed else log.debug)(f"[RBAC] Assigned role={role} to user={user_id}")
 
 
 def auth_mode() -> str:
