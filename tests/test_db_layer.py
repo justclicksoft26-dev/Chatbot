@@ -173,3 +173,31 @@ def test_an_unknown_column_that_mentions_connection_is_not_retried():
 
 def test_duplicate_column_names_are_kept_apart():
     assert db._unique_columns(["name", "total", "name", "name"]) == ["name", "total", "name_2", "name_3"]
+
+
+def test_connections_of_another_oracle_user_start_in_the_schema_owner(monkeypatch):
+    monkeypatch.setenv("DB_SCHEMA", "justclick")
+    init = db._session_callback()
+    ran = []
+
+    class Cur:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def execute(self, sql): ran.append(sql)
+
+    class Conn:
+        def cursor(self): return Cur()
+
+    init(Conn(), None)
+    assert ran == ["ALTER SESSION SET CURRENT_SCHEMA = justclick"]
+
+
+def test_no_schema_means_no_session_change(monkeypatch):
+    monkeypatch.delenv("DB_SCHEMA", raising=False)
+    assert db._session_callback() is None
+
+
+def test_a_schema_name_that_is_not_a_plain_name_is_refused(monkeypatch):
+    monkeypatch.setenv("DB_SCHEMA", "x; DROP USER y")
+    with pytest.raises(ValueError):
+        db._session_callback()

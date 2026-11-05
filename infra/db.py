@@ -31,6 +31,28 @@ _dml_pool = None
 _DML_DB_CONFIGURED = False
 
 
+_SCHEMA_NAME = __import__("re").compile(r"^[A-Za-z][A-Za-z0-9_$#]{0,29}$")
+
+
+def _session_callback():
+    """A function oracledb runs on every new connection, or None when DB_SCHEMA is not set.
+
+    The application reads unqualified names (FROM ITEMS). The read-only and DML users are different Oracle users
+    from the schema that owns the tables, so without this every query would fail with ORA-00942 unless a synonym
+    exists for each table. DB_SCHEMA=<owner> makes each connection start in the owner's schema."""
+    schema = os.getenv("DB_SCHEMA", "").strip()
+    if not schema:
+        return None
+    if not _SCHEMA_NAME.match(schema):
+        raise ValueError(f"DB_SCHEMA is not a plain Oracle name: {schema!r}")
+
+    def init(connection, requested_tag):
+        with connection.cursor() as cur:
+            cur.execute(f"ALTER SESSION SET CURRENT_SCHEMA = {schema}")
+
+    return init
+
+
 async def get_pool():
     global _pool
     if _pool is None:
@@ -38,7 +60,7 @@ async def get_pool():
             user=os.getenv("DB_USER"),
             password=os.getenv("DB_PASS"),
             dsn=f"{os.getenv('DB_HOST')}:{os.getenv('DB_PORT')}/{os.getenv('DB_SID')}",
-            min=2, max=10, increment=1
+            min=2, max=10, increment=1, session_callback=_session_callback()
         )
     return _pool
 
@@ -64,7 +86,7 @@ async def get_read_pool():
             user=read_user,
             password=read_pass,
             dsn=f"{os.getenv('DB_HOST')}:{os.getenv('DB_PORT')}/{os.getenv('DB_SID')}",
-            min=2, max=10, increment=1
+            min=2, max=10, increment=1, session_callback=_session_callback()
         )
         _READ_DB_CONFIGURED = True
         log.info("[DB] Read-only pool created (DB_READ_USER=%s)", read_user)
@@ -105,7 +127,8 @@ async def get_dml_pool():
             user=dml_user,
             password=dml_pass,
             dsn=f"{os.getenv('DB_HOST')}:{os.getenv('DB_PORT')}/{os.getenv('DB_SID')}",
-            min=1, max=5, increment=1   # smaller pool — actions are rare events
+            min=1, max=5, increment=1,   # smaller pool — actions are rare events
+            session_callback=_session_callback(),
         )
         _DML_DB_CONFIGURED = True
         log.info("[DB] DML pool created (DB_DML_USER=%s)", dml_user)

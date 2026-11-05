@@ -55,8 +55,7 @@ CREATE TABLE justclick.AI_ACTION_REQUESTS (
 
 CREATE INDEX idx_air_status_co ON justclick.AI_ACTION_REQUESTS (STATUS, COMPANY_CODE);
 CREATE INDEX idx_air_requested ON justclick.AI_ACTION_REQUESTS (REQUESTED_BY, REQUESTED_AT);
-CREATE INDEX idx_air_assigned  ON justclick.AI_ACTION_REQUESTS (ASSIGNED_TO)
-    WHERE ASSIGNED_TO IS NOT NULL;
+CREATE INDEX idx_air_assigned  ON justclick.AI_ACTION_REQUESTS (ASSIGNED_TO);
 
 COMMENT ON TABLE  justclick.AI_ACTION_REQUESTS IS 'JustClick AI Chatbot — pending / completed workflow actions';
 COMMENT ON COLUMN justclick.AI_ACTION_REQUESTS.STATUS IS 'pending | approved | rejected | completed | cancelled';
@@ -100,47 +99,56 @@ CREATE USER justclick_read
 GRANT CREATE SESSION TO justclick_read;
 
 -- SELECT on all ERP tables (comment-driven — matches justclick_comments.sql)
-GRANT SELECT ON justclick.ATT_EMP TO justclick_read;
-GRANT SELECT ON justclick.BRANCHES TO justclick_read;
-GRANT SELECT ON justclick.CASHES TO justclick_read;
-GRANT SELECT ON justclick.CASH_TRANS_DETAIL TO justclick_read;
-GRANT SELECT ON justclick.CASH_TRANS_HEAD TO justclick_read;
-GRANT SELECT ON justclick.CHARTS TO justclick_read;
-GRANT SELECT ON justclick.CHARTS_ELEMENTS TO justclick_read;
-GRANT SELECT ON justclick.COMPANIES TO justclick_read;
-GRANT SELECT ON justclick.COST_CENTERS TO justclick_read;
-GRANT SELECT ON justclick.CUST TO justclick_read;
-GRANT SELECT ON justclick.DEALER_DATA TO justclick_read;
-GRANT SELECT ON justclick.DETAIL_INV TO justclick_read;
-GRANT SELECT ON justclick.EMPLOYEES TO justclick_read;
-GRANT SELECT ON justclick.EMPLOYEE_SALARIES TO justclick_read;
-GRANT SELECT ON justclick.EMP_LOANS TO justclick_read;
-GRANT SELECT ON justclick.EMP_VACATION TO justclick_read;
-GRANT SELECT ON justclick.EXPIRY_DATA TO justclick_read;
-GRANT SELECT ON justclick.INST TO justclick_read;
-GRANT SELECT ON justclick.INV_CATEGORIES TO justclick_read;
-GRANT SELECT ON justclick.ITEMGROUP TO justclick_read;
-GRANT SELECT ON justclick.ITEMS TO justclick_read;
-GRANT SELECT ON justclick.ITEM_CARD TO justclick_read;
-GRANT SELECT ON justclick.LOOK_UP TO justclick_read;
-GRANT SELECT ON justclick.LOOK_UP_PARENT TO justclick_read;
-GRANT SELECT ON justclick.MAIN_INV TO justclick_read;
-GRANT SELECT ON justclick.MAIN_INV_PAYED TO justclick_read;
-GRANT SELECT ON justclick.METHOD_SETUP TO justclick_read;
-GRANT SELECT ON justclick.PAYED TO justclick_read;
-GRANT SELECT ON justclick.PRICE_LIST TO justclick_read;
-GRANT SELECT ON justclick.SAL_PURCH_TRANS_TYPE TO justclick_read;
-GRANT SELECT ON justclick.STORE TO justclick_read;
-GRANT SELECT ON justclick.STORE_TRANS_TYPE TO justclick_read;
-GRANT SELECT ON justclick.TRANSACTION TO justclick_read;
-GRANT SELECT ON justclick.TRANSACTION_TOT TO justclick_read;
-GRANT SELECT ON justclick.TRANSMASTER TO justclick_read;
-GRANT SELECT ON justclick.UNITS TO justclick_read;
-GRANT SELECT ON justclick.VOUCHERS TO justclick_read;
-GRANT SELECT ON justclick.VOUCHERS_DET TO justclick_read;
+SET SERVEROUTPUT ON
+DECLARE
+  PROCEDURE grant_if_exists(p_obj VARCHAR2, p_priv VARCHAR2, p_to VARCHAR2, p_type VARCHAR2) IS
+    n NUMBER;
+  BEGIN
+    SELECT COUNT(*) INTO n FROM all_objects
+     WHERE owner = UPPER('justclick') AND object_name = UPPER(p_obj) AND object_type = p_type;
+    IF n = 0 THEN
+      DBMS_OUTPUT.PUT_LINE('skipped (not found): ' || p_obj);
+    ELSE
+      EXECUTE IMMEDIATE 'GRANT ' || p_priv || ' ON justclick.' || p_obj || ' TO ' || p_to;
+    END IF;
+  END;
+BEGIN
+    grant_if_exists('BRANCHES', 'SELECT', 'justclick_read', 'TABLE');
+    grant_if_exists('CASH_TRANS_DETAIL', 'SELECT', 'justclick_read', 'TABLE');
+    grant_if_exists('CASH_TRANS_HEAD', 'SELECT', 'justclick_read', 'TABLE');
+    grant_if_exists('CHARTS', 'SELECT', 'justclick_read', 'TABLE');
+    grant_if_exists('COMPANIES', 'SELECT', 'justclick_read', 'TABLE');
+    grant_if_exists('COST_CENTERS', 'SELECT', 'justclick_read', 'TABLE');
+    grant_if_exists('CUST', 'SELECT', 'justclick_read', 'TABLE');
+    grant_if_exists('DEALER_DATA', 'SELECT', 'justclick_read', 'TABLE');
+    grant_if_exists('DETAIL_INV', 'SELECT', 'justclick_read', 'TABLE');
+    grant_if_exists('EMPLOYEES', 'SELECT', 'justclick_read', 'TABLE');
+    grant_if_exists('EXPIRY_DATA', 'SELECT', 'justclick_read', 'TABLE');
+    grant_if_exists('INST', 'SELECT', 'justclick_read', 'TABLE');
+    grant_if_exists('INV_CATEGORIES', 'SELECT', 'justclick_read', 'TABLE');
+    grant_if_exists('ITEMGROUP', 'SELECT', 'justclick_read', 'TABLE');
+    grant_if_exists('ITEMS', 'SELECT', 'justclick_read', 'TABLE');
+    grant_if_exists('ITEM_CARD', 'SELECT', 'justclick_read', 'TABLE');
+    grant_if_exists('MAIN_INV', 'SELECT', 'justclick_read', 'TABLE');
+    grant_if_exists('MAIN_INV_PAYED', 'SELECT', 'justclick_read', 'TABLE');
+    grant_if_exists('PAYED', 'SELECT', 'justclick_read', 'TABLE');
+    grant_if_exists('PRICE_LIST', 'SELECT', 'justclick_read', 'TABLE');
+    grant_if_exists('SAL_PURCH_TRANS_TYPE', 'SELECT', 'justclick_read', 'TABLE');
+    grant_if_exists('STORE', 'SELECT', 'justclick_read', 'TABLE');
+    grant_if_exists('STORE_TRANS_TYPE', 'SELECT', 'justclick_read', 'TABLE');
+    grant_if_exists('TRANSACTION', 'SELECT', 'justclick_read', 'TABLE');
+    grant_if_exists('TRANSACTION_TOT', 'SELECT', 'justclick_read', 'TABLE');
+    grant_if_exists('TRANSMASTER', 'SELECT', 'justclick_read', 'TABLE');
+    grant_if_exists('UNITS', 'SELECT', 'justclick_read', 'TABLE');
+    grant_if_exists('VOUCHERS', 'SELECT', 'justclick_read', 'TABLE');
+    grant_if_exists('VOUCHERS_DET', 'SELECT', 'justclick_read', 'TABLE');
+    grant_if_exists('AI_ACTION_REQUESTS', 'SELECT', 'justclick_read', 'TABLE');
+    grant_if_exists('RASEED', 'EXECUTE', 'justclick_read', 'FUNCTION');
+END;
+/
 
--- SELECT on workflow tracking table (queries via execute_read_query)
-GRANT SELECT ON justclick.AI_ACTION_REQUESTS TO justclick_read;
+-- The application reads unqualified names (FROM ITEMS): set DB_SCHEMA=justclick in .env so every
+-- connection of this user starts with ALTER SESSION SET CURRENT_SCHEMA (no synonyms needed).
 
 -- No sequence grants needed for the read user (CURRVAL requires prior NEXTVAL
 -- on the same session, which read queries never issue).
@@ -163,23 +171,39 @@ CREATE USER justclick_dml
 GRANT CREATE SESSION TO justclick_dml;
 
 -- Table-level DML grants (minimum required by erp_actions/registry.py)
--- customers + suppliers: create, update, deactivate
-GRANT INSERT, UPDATE, SELECT ON justclick.CUST TO justclick_dml;
+-- customers + suppliers (CUST): create, update, deactivate · items (ITEMS): create, update, price change
+-- payments (PAYED): create · workflow (AI_ACTION_REQUESTS): approve, reject, new request
+-- sequences: SELECT on a sequence allows NEXTVAL for new ids. Objects missing from the database are skipped.
+SET SERVEROUTPUT ON
+DECLARE
+  PROCEDURE grant_if_exists(p_obj VARCHAR2, p_priv VARCHAR2, p_to VARCHAR2, p_type VARCHAR2) IS
+    n NUMBER;
+  BEGIN
+    SELECT COUNT(*) INTO n FROM all_objects
+     WHERE owner = UPPER('justclick') AND object_name = UPPER(p_obj) AND object_type = p_type;
+    IF n = 0 THEN
+      DBMS_OUTPUT.PUT_LINE('skipped (not found): ' || p_obj);
+    ELSE
+      EXECUTE IMMEDIATE 'GRANT ' || p_priv || ' ON justclick.' || p_obj || ' TO ' || p_to;
+    END IF;
+  END;
+BEGIN
+    grant_if_exists('CUST', 'INSERT', 'justclick_dml', 'TABLE');
+    grant_if_exists('CUST', 'UPDATE', 'justclick_dml', 'TABLE');
+    grant_if_exists('CUST', 'SELECT', 'justclick_dml', 'TABLE');
+    grant_if_exists('ITEMS', 'INSERT', 'justclick_dml', 'TABLE');
+    grant_if_exists('ITEMS', 'UPDATE', 'justclick_dml', 'TABLE');
+    grant_if_exists('ITEMS', 'SELECT', 'justclick_dml', 'TABLE');
+    grant_if_exists('PAYED', 'INSERT', 'justclick_dml', 'TABLE');
+    grant_if_exists('PAYED', 'SELECT', 'justclick_dml', 'TABLE');
+    grant_if_exists('AI_ACTION_REQUESTS', 'INSERT', 'justclick_dml', 'TABLE');
+    grant_if_exists('AI_ACTION_REQUESTS', 'UPDATE', 'justclick_dml', 'TABLE');
+    grant_if_exists('CUST_SEQ', 'SELECT', 'justclick_dml', 'SEQUENCE');
+    grant_if_exists('ITEMS_SEQ', 'SELECT', 'justclick_dml', 'SEQUENCE');
+    grant_if_exists('PAYED_SEQ', 'SELECT', 'justclick_dml', 'SEQUENCE');
+END;
+/
 
--- items: create, update, price change
-GRANT INSERT, UPDATE, SELECT ON justclick.ITEMS TO justclick_dml;
-
--- payments + collections: create (no UPDATE — immutable records)
-GRANT INSERT, SELECT ON justclick.PAYED TO justclick_dml;
-
--- workflow: approve, reject, new request
-GRANT INSERT, UPDATE ON justclick.AI_ACTION_REQUESTS TO justclick_dml;
-
--- Sequence NEXTVAL for INSERT ID generation
--- (SELECT on sequence = permission to call .NEXTVAL and .CURRVAL)
-GRANT SELECT ON justclick.CUST_SEQ TO justclick_dml;
-GRANT SELECT ON justclick.ITEMS_SEQ TO justclick_dml;
-GRANT SELECT ON justclick.PAYED_SEQ TO justclick_dml;
 
 -- No access to chat/reporting tables — DML user cannot read MAIN_INV,
 -- TRANSACTION_TOT, VOUCHERS, etc. Full privilege separation.
