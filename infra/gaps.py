@@ -35,6 +35,19 @@ def record(question: str, kind: str, user_id: str = "") -> None:
     """Keep one unanswered question. Never raises: logging must not break an answer."""
     if kind not in KINDS or not (question or "").strip():
         return
+    _append(question, kind, user_id)
+
+
+def dismiss(question: str) -> bool:
+    """The administrator decided this is not a missing comment (a test probe, a question that is rightly refused, an
+    out-of-scope one): that question and the ones that mean the same stop appearing in the list."""
+    if not tokens(question):
+        return False
+    _append(question, "dismissed", "admin")
+    return True
+
+
+def _append(question: str, kind: str, user_id: str) -> None:
     entry = {"ts": int(time.time()), "kind": kind, "q": question.strip()[:300],
              "user": hashlib.sha1((user_id or "").encode("utf-8")).hexdigest()[:8]}
     try:
@@ -80,11 +93,15 @@ def summary(limit: int = 30, since_days: int = 0) -> list[dict]:
     """Groups of similar unanswered questions, most asked first: {count, kinds, sample, users, last_seen, words}."""
     cutoff = time.time() - since_days * 86400 if since_days else 0
     groups: list[dict] = []
-    for e in _entries():
+    entries = _entries()
+    dismissed = [tokens(e.get("q", "")) for e in entries if e.get("kind") == "dismissed"]
+    for e in entries:
         if e.get("ts", 0) < cutoff or e.get("kind") not in KINDS:
             continue
         words = tokens(e.get("q", ""))
         if not words:
+            continue
+        if any(d and len(d & words) / len(d | words) >= 0.5 for d in dismissed):
             continue
         for g in groups:
             union = g["words"] | words

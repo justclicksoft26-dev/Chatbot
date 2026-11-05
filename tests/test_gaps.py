@@ -174,3 +174,22 @@ async def test_a_result_that_hit_the_query_row_cap_says_there_may_be_more(world)
     world("SELECT CUST_NAME FROM CUST FETCH FIRST 200 ROWS ONLY", Db(rows=[{"cust_name": str(i)} for i in range(200)]))
     r = await ask("اعرض كل العملاء")
     assert "200" in r.answer and "قد توجد" in r.answer
+
+
+def test_a_dismissed_question_and_its_look_alikes_leave_the_list(monkeypatch, tmp_path):
+    monkeypatch.setenv("GAPS_FILE", str(tmp_path / "g.jsonl"))
+    gaps.record("ما هو الطقس اليوم؟", "no_answer", "u1")
+    gaps.record("ما هي حالة الطقس اليوم", "no_answer", "u2")
+    gaps.record("كم رصيد مخزن الحيط؟", "empty", "u1")
+    assert len(gaps.summary()) == 2
+    assert gaps.dismiss("ما هو الطقس اليوم؟")
+    assert [g["sample"] for g in gaps.summary()] == ["كم رصيد مخزن الحيط؟"]
+    gaps.record("ما هو الطقس اليوم؟", "no_answer", "u3")            # asked again later: still hidden
+    assert len(gaps.summary()) == 1
+
+
+def test_dismissing_needs_admin_rights(monkeypatch):
+    monkeypatch.setenv("ADMIN_API_KEY", "admin-key-123456")
+    monkeypatch.setattr(app_module, "_API_KEY", "")
+    client = TestClient(app_module.app)
+    assert client.post("/chat/gaps/dismiss", json={"question": "x"}).status_code == 403

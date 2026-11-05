@@ -3624,6 +3624,12 @@
       '<div class="adm-section" style="font-size:13px"><h4>الصلاحيات</h4>' + (ME.can_view_sql ? '✓ رؤية الاستعلام' : '✗ رؤية الاستعلام') + ' · ' + (ME.can_export ? '✓ التصدير' : '✗ التصدير') + '</div>';
     openModal('me-modal');
   }
+  async function dismissGap(el, sampleJson) {
+    try {
+      const r = await fetch(API + '/chat/gaps/dismiss', { method: 'POST', headers: apiHeaders(), body: JSON.stringify({ question: JSON.parse(sampleJson) }) });
+      if (r.ok) el.closest('.adm-row').remove();
+    } catch (e) { /* the row stays */ }
+  }
   async function showAdmin() {
     openModal('admin-modal');
     const body = document.getElementById('admin-body');
@@ -3635,11 +3641,13 @@
       const t = usage.today || {};
       html += '<div class="adm-section"><h4>استهلاك الذكاء الاصطناعي اليوم</h4>' +
         '<div class="adm-row"><span>الطلبات</span><b>' + (t.requests || 0) + (usage.daily_request_limit ? ' / ' + usage.daily_request_limit : '') + '</b></div>' +
-        '<div class="adm-row"><span>الرموز (إدخال / إخراج)</span><b>' + (t.prompt || 0) + ' / ' + (t.completion || 0) + '</b></div>' +
+        '<div class="adm-row"><span>رموز الإدخال (السؤال والمخطط)</span><b>' + (t.prompt || 0) + '</b></div>' +
+        '<div class="adm-row"><span>رموز الإخراج (الاستعلام والإجابة)</span><b>' + (t.completion || 0) + '</b></div>' +
         (t.cost_estimate != null ? '<div class="adm-row"><span>التكلفة التقديرية</span><b>' + escHtml(String(t.cost_estimate)) + '</b></div>' : '') + '</div>';
     }
     if (gaps) {
-      const rows = (gaps.groups || []).map(g => '<div class="adm-row"><span>' + escHtml(g.sample) + '</span><small>' + g.count + '× · ' + g.users + ' مستخدم</small></div>').join('');
+      const rows = (gaps.groups || []).map(g => '<div class="adm-row"><span>' + escHtml(g.sample) + '</span><small>' + g.count + '× · ' + g.users + ' مستخدم' +
+        ' <a href="#" title="ليس تعليقاً ناقصاً (اختبار أو سؤال يُرفض عن قصد): أخفِه" onclick="dismissGap(this,' + escHtml(JSON.stringify(JSON.stringify(g.sample))) + ');return false">✕</a></small></div>').join('');
       html += '<div class="adm-section"><h4>أسئلة لم يستطع النظام الإجابة عنها (تعليق ناقص غالباً)</h4>' + (rows || '<small>لا شيء — كل الأسئلة أُجيبت</small>') + '</div>';
     }
     if (pins) {
