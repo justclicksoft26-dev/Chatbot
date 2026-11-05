@@ -335,6 +335,17 @@ async def unanswered_questions(limit: int = 30, days: int = 0):
     return {"groups": gaps.summary(max(1, min(limit, 200)), max(0, days)), "kinds": gaps.KINDS}
 
 
+class GapDismissRequest(BaseModel):
+    question: str
+
+
+@router.post("/gaps/dismiss", dependencies=[Depends(require_admin)])
+async def dismiss_gap(req: GapDismissRequest):
+    """Hide a question (and the ones that mean the same) from the unanswered list: it is not a missing comment."""
+    from infra import gaps
+    return {"dismissed": gaps.dismiss(req.question)}
+
+
 @router.get("/pins", dependencies=[Depends(require_admin)])
 async def pinned_queries():
     """The queries behind the dashboard widgets that were written from the schema comments, with their status
